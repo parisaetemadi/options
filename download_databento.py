@@ -36,7 +36,7 @@ ALREADY_SPENT = 0.20          # the tests we ran before this script existed
 STRIKE_RANGE = 0.20
 MIN_DAYS, MAX_DAYS = 7, 365
 CHUNK = 2000                  # Databento allows up to 2,000 symbols per request
-DAYS_AT_ONCE = 4              # download several days in parallel
+DAYS_AT_ONCE = 12             # download several days in parallel
 OUT = Path(__file__).parent / "data" / "databento"
 
 
