@@ -4,7 +4,8 @@ Yahoo's quotes come from the exchanges (~15 min delayed). Massive's free plan ha
 bid/ask, so this builds our own day-by-day history of quotes going forward.
 
 One file per day: data/yahoo/YYYY-MM-DD.csv.gz
-Run:  python snapshot_yahoo.py      (on GitHub it runs by itself every weekday afternoon)
+Run:  python snapshot_yahoo.py      (on GitHub it runs by itself several times every weekday afternoon;
+      the last run before the 4pm close wins)
 """
 import time
 from pathlib import Path
@@ -59,6 +60,12 @@ def main():
     now = pd.Timestamp.now(tz="America/New_York")
     if now.weekday() >= 5:
         return print("Weekend -- market closed, nothing to save.")
+    minute = now.hour * 60 + now.minute
+    if minute < 9 * 60 + 30:
+        return print("Market hasn't opened yet -- nothing to save.")
+    path = OUT / f"{now:%Y-%m-%d}.csv.gz"
+    if minute >= 16 * 60 and path.exists():
+        return print("Already have today's snapshot from before the close -- keeping it.")
     frames = []
     for t in TICKERS:
         df = snapshot(t, now)
@@ -68,8 +75,7 @@ def main():
     data = pd.concat(frames, ignore_index=True)
     if ((data["bid"] > 0) & (data["ask"] > 0)).mean() < 0.3:
         return print("Most quotes are empty (holiday or market closed?) -- not saving.")
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / f"{now:%Y-%m-%d}.csv.gz"
+    OUT.mkdir(parents=True, exist_ok=True)   # later runs overwrite earlier ones, so the latest wins
     data.replace({np.nan: None}).to_csv(path, index=False)
     print(f"Saved {len(data)} quotes to {path} ({path.stat().st_size / 1e6:.1f} MB)")
 

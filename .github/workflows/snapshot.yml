@@ -1,10 +1,12 @@
 # Saves real option quotes (bid/ask/volume/open interest) from Yahoo every weekday
-# afternoon into data/yahoo/, so we build our own daily history going forward.
+# afternoon into data/yahoo/ (latest run before the close wins), so we build our own daily history going forward.
 name: Daily Yahoo quotes
 
 on:
   schedule:
-    - cron: "37 19 * * 1-5"   # 19:37 UTC = 3:37pm New York in summer, 2:37pm in winter
+    # Several tries, because GitHub often starts scheduled runs late (sometimes by hours).
+    # UTC times: 17:07-20:07 = 1:07-4:07pm New York in summer, 12:07-3:07pm in winter.
+    - cron: "7 17,18,19,20 * * 1-5"
   workflow_dispatch:
 
 concurrency:
