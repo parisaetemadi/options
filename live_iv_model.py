@@ -1,44 +1,24 @@
 """
-Step 2: Real option data from Yahoo Finance -- out-of-the-money options only.
-Trains ONE neural net on all tickers together; each stock's historical vol is an input.
-Install once:  pip install numpy scipy pandas scikit-learn matplotlib yfinance
-Run (during US market hours, 9:30-16:00 New York time):  python real_options.py
+Live model: today's out-of-the-money option quotes from Yahoo Finance for several tickers.
+Trains ONE neural net on all tickers together to predict implied volatility;
+each stock's historical vol is an input.
+Run (during US market hours, 9:30-16:00 New York time):  python live_iv_model.py
 """
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import yfinance as yf
-from scipy.stats import norm
-from scipy.optimize import brentq
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from pricing import implied_vol
+
 TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]   # highly liquid options
 RATE = 0.04        # rough interest rate; close enough for learning
 SMOOTHING = 0.01   # neural net: higher = smoother curve, lower = follows data more closely
 MIN_OPTIONS = 20   # skip a ticker if fewer usable quotes than this (e.g. market closed)
-
-
-# ---------- Black-Scholes + backing out IV ----------
-def bs_call(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
-
-def bs_put(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    return K * np.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
-
-def implied_vol(price, S, K, T, r, kind):
-    """Find the volatility that makes Black-Scholes match the market price."""
-    f = bs_call if kind == "call" else bs_put
-    try:
-        return brentq(lambda s: f(S, K, T, r, s) - price, 0.001, 5.0)
-    except ValueError:
-        return np.nan   # no volatility fits (bad or stale price)
 
 
 # ---------- 0. Warn if the market is closed (quotes will be stale) ----------

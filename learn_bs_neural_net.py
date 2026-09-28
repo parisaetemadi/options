@@ -1,23 +1,17 @@
 """
-Step 1: Teach a neural net to price options (Black-Scholes).
-Install once:  pip install numpy scipy scikit-learn
-Run:           python bs_neural_net.py
+Practice: teach a neural net to reproduce the Black-Scholes formula on made-up data.
+Run:  python learn_bs_neural_net.py
 """
 import numpy as np
-from scipy.stats import norm
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import train_test_split
 
-
-# ---------- 1. The Black-Scholes formula (call option) ----------
-def black_scholes_call(S, K, T, r, sigma):
-    d1 = (np.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
-    d2 = d1 - sigma * np.sqrt(T)
-    return S * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+from pricing import bs_call
 
 
+# ---------- 1. The Black-Scholes formula (call option), from pricing.py ----------
 # Quick sanity check: stock $100, strike $100, 1 year, 5% rate, 20% vol
-print("Example price:", round(black_scholes_call(100, 100, 1, 0.05, 0.20), 2))  # ~10.45
+print("Example price:", round(bs_call(100, 100, 1, 0.05, 0.20), 2))  # ~10.45
 
 
 # ---------- 2. Make fake training data ----------
@@ -31,7 +25,7 @@ r     = rng.uniform(0.0, 0.05, n)   # 0% .. 5% interest
 sigma = rng.uniform(0.1, 0.6, n)    # 10% .. 60% volatility
 
 X = np.column_stack([S, T, r, sigma])      # inputs
-y = black_scholes_call(S, 1.0, T, r, sigma)  # correct answers
+y = bs_call(S, 1.0, T, r, sigma)  # correct answers
 
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=0)
 

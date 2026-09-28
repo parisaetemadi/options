@@ -8,7 +8,8 @@ What it downloads, for each ticker and each monthly expiration (3rd Friday):
     chosen around the stock price ~30 days before expiration
   - each contract's daily open/high/low/close/volume (1 API call per contract)
 
-Run:  python download_history.py --minutes 60
+Run:  python download_massive.py --minutes 60
+(On GitHub this runs by itself every 6 hours -- see .github/workflows/download.yml.)
 Needs MASSIVE_API_KEY in the environment or in a .env file.
 """
 import argparse
