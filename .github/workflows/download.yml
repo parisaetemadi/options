@@ -1,0 +1,50 @@
+# Downloads option history from Massive on GitHub's computers, so your laptop can be off.
+# Runs every 6 hours for up to ~5.5 hours, saves progress to data/, and switches
+# itself off once everything is downloaded (data/COMPLETE exists).
+name: Download option history
+
+on:
+  schedule:
+    - cron: "15 */6 * * *"   # every 6 hours (UTC)
+  workflow_dispatch:          # "Run workflow" button on GitHub
+
+concurrency:
+  group: download
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # to save data/ back into the repo
+  actions: write    # to switch the schedule off when finished
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Download (stops itself after 5h20m)
+        env:
+          MASSIVE_API_KEY: ${{ secrets.MASSIVE_API_KEY }}
+        run: python download_history.py --minutes 320
+
+      - name: Save progress
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Option data: download progress"
+          git push
+
+      - name: Switch off the schedule when finished
+        if: hashFiles('data/COMPLETE') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable download.yml
