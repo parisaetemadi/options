@@ -1,5 +1,5 @@
 """
-Download ~2 years of daily option prices from Massive (free plan) into data/.
+Download ~2 years of daily option prices from Massive (free plan) into data/massive/.
 Free plan = 5 API calls per minute, so this is slow. It saves as it goes and
 picks up where it left off, so you can stop it and run it again any time.
 
@@ -26,7 +26,7 @@ STRIKES_PER_SIDE = 20        # puts below the price + calls above it, per expira
 STRIKE_RANGE = 0.20          # only strikes within +-20% of the price
 CALL_GAP = 12.5              # seconds between API calls (5 per minute)
 API = "https://api.massive.com"
-DATA = Path(__file__).parent / "data"
+DATA = Path(__file__).parent / "data" / "massive"
 
 TODAY = dt.date.today()
 START = TODAY - dt.timedelta(days=2 * 365 - 5)   # free plan: last 2 years

@@ -1,6 +1,6 @@
 # Downloads option history from Massive on GitHub's computers, so your laptop can be off.
-# Runs every 6 hours for up to ~5.5 hours, saves progress to data/, and switches
-# itself off once everything is downloaded (data/COMPLETE exists).
+# Runs every 6 hours for up to ~5.5 hours, saves progress to data/massive/, and switches
+# itself off once everything is downloaded (data/massive/COMPLETE exists).
 name: Download option history
 
 on:
@@ -45,7 +45,7 @@ jobs:
           git push
 
       - name: Switch off the schedule when finished
-        if: hashFiles('data/COMPLETE') != ''
+        if: hashFiles('data/massive/COMPLETE') != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow disable download.yml
