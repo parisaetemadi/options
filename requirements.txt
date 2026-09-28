@@ -5,3 +5,6 @@ scikit-learn
 matplotlib
 yfinance
 requests
+databento
+pandas_market_calendars
+pyarrow
