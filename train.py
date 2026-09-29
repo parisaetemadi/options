@@ -5,7 +5,10 @@ The model predicts each option's implied volatility (IV) from things known at th
   - the option: how far the strike is from the stock price, time to expiry
   - the stock: how much it has been moving lately (5/21/63 days), recent returns
   - the market: yesterday's VIX ("fear gauge"), and which ticker it is
-Plug the IV into Black-Scholes (with the real T-bill rate that day) and you get a price.
+  - scheduled events: days until the next earnings (or Tesla delivery report),
+    and whether it happens before the option expires
+Plug the IV into Black-Scholes (with the real T-bill rate and the stock's dividend yield)
+and you get a price. Run fetch_events.py first to refresh earnings/dividends.
 
 Walk-forward test: train on older dates, test on the newest dates the model never saw.
 Two models are compared: a neural net and LightGBM (gradient-boosted trees).
@@ -63,6 +66,26 @@ def stock_features():
     return s.drop(columns=["close", "ret"])
 
 
+# ---------- 2b. Scheduled events (earnings, Tesla deliveries) and dividend yield ----------
+NO_EVENT_DAYS = 120   # "no event coming up" (ETFs, or more than ~4 months away)
+
+def add_events(q):
+    ev = pd.read_csv(DATA / "events" / "earnings.csv")
+    ev = ev[ev["type"].isin(["earnings", "deliveries"])]      # only events known in advance
+    ev = ev.assign(event_day=pd.to_datetime(ev["reaction_day"]))[["ticker", "event_day"]].sort_values("event_day")
+    q = q.assign(day=pd.to_datetime(q["date"])).sort_values("day")
+    # next event strictly after today (today's reaction is already in today's prices)
+    q = pd.merge_asof(q, ev, left_on="day", right_on="event_day", by="ticker",
+                      direction="forward", allow_exact_matches=False)
+    days = (q["event_day"] - q["day"]).dt.days
+    q["days_to_event"] = days.fillna(NO_EVENT_DAYS).clip(upper=NO_EVENT_DAYS)
+    q["event_before_expiry"] = (q["event_day"] <= pd.to_datetime(q["expiration"])).astype(float)
+    dy = pd.read_csv(DATA / "events" / "div_yield.csv")
+    q = q.merge(dy, on=["ticker", "date"], how="left")
+    q["div_yield"] = q["div_yield"].fillna(0.0)                # AMZN, TSLA pay none
+    return q.drop(columns=["day", "event_day"])
+
+
 # ---------- 3. Load quotes, clean them, back out IV ----------
 files = sorted((DATA / "databento" / "quotes").glob("*/*.parquet"))
 q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
@@ -73,14 +96,15 @@ q = q[(q["bid"] > 0) & (q["ask"] > q["bid"]) & (q["mid"] >= 0.05)
       & ((q["ask"] - q["bid"]) / q["mid"] <= MAX_SPREAD)]
 print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({len(files)} days, {q['date'].min()} to {q['date'].max()})")
 
-q = q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date")
+q = add_events(q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date"))
 q["T"] = (pd.to_datetime(q["expiration"]) - pd.to_datetime(q["date"])).dt.days / 365
 q["moneyness"] = q["strike"] / q["spot"]
 
 ivs = []
 for i in range(0, len(q), 1_000_000):             # in chunks to keep memory small
     c = q.iloc[i:i + 1_000_000]
-    ivs.append(implied_vol_many(c["mid"], c["spot"], c["strike"], c["T"], c["tbill"].values, c["type"]))
+    ivs.append(implied_vol_many(c["mid"], c["spot"], c["strike"], c["T"], c["tbill"].values, c["type"],
+                                q=c["div_yield"].values))
 q["iv"] = np.concatenate(ivs)
 q = q[q["iv"].between(0.02, 3)].dropna(subset=["rv63", "vix_prev"]).reset_index(drop=True)
 print(f"Usable options with an implied vol: {len(q):,}")
@@ -93,11 +117,12 @@ train, test = q[q["date"] < cutoff], q[q["date"] >= cutoff].copy()
 print(f"Train: {len(train):,} options before {cutoff}   Test: {len(test):,} options from {cutoff}\n")
 
 TICKERS = sorted(q["ticker"].unique())
-FEATURES = ["log_m", "sqrt_T", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev"] + [f"is_{t}" for t in TICKERS]
+FEATURES = (["log_m", "sqrt_T", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
+             "days_to_event", "event_before_expiry"] + [f"is_{t}" for t in TICKERS])
 
 def features(d):
     X = pd.DataFrame({"log_m": np.log(d["moneyness"]), "sqrt_T": np.sqrt(d["T"])}, index=d.index)
-    for col in ["rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev"]:
+    for col in ["rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev", "days_to_event", "event_before_expiry"]:
         X[col] = d[col]
     for t in TICKERS:
         X[f"is_{t}"] = (d["ticker"] == t).astype(float)
@@ -118,7 +143,8 @@ models["LightGBM"] = lgb.LGBMRegressor(n_estimators=600, learning_rate=0.05, num
 
 # ---------- 6. Test on unseen dates ----------
 def score(iv_pred):
-    price = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values, iv_pred)
+    price = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values, iv_pred,
+                     test["div_yield"].values)
     return {"IV error": np.median(np.abs(iv_pred - test["iv"])),
             "price error": np.median(np.abs(price - test["mid"]) / test["mid"]),
             "inside bid/ask": np.mean((price >= test["bid"]) & (price <= test["ask"]))}
@@ -132,7 +158,8 @@ print(table.to_string(formatters={c: "{:.1%}".format for c in table.columns}))
 
 best = min(models, key=lambda k: results[k]["price error"])
 test["iv_pred"] = np.clip(models[best].predict(features(test)), 0.02, 3)
-test["price_pred"] = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values, test["iv_pred"])
+test["price_pred"] = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values,
+                              test["iv_pred"], test["div_yield"].values)
 by = test.groupby("ticker").apply(lambda g: pd.Series({
     "options": len(g),
     "IV error": np.median(np.abs(g["iv_pred"] - g["iv"])),
