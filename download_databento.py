@@ -199,6 +199,13 @@ def download_day(day, close_utc, defs, spot):
 
 def main(max_days):
     OUT.mkdir(parents=True, exist_ok=True)
+    # never run two copies at once (they would buy the same days twice)
+    import fcntl
+    main.lock = open(OUT / ".lock", "w")
+    try:
+        fcntl.flock(main.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise SystemExit("Another download is already running -- exiting.")
     print("Stock closes from Yahoo...")
     closes = stock_closes()
 
@@ -220,6 +227,8 @@ def main(max_days):
         except KeyError:
             print(f"{day}: no stock prices, skipping")
     print(f"{len(todo):,} days to download")
+    if not todo:
+        (OUT / "COMPLETE").write_text(f"All days downloaded ({pd.Timestamp.now():%Y-%m-%d %H:%M})\n")
 
     def one(job):
         day, close_utc, week_start, spot = job
