@@ -7,7 +7,7 @@ One file per day: data/yahoo/YYYY-MM-DD.csv.gz
 Run:  python snapshot_yahoo.py      (on GitHub it runs by itself several times every weekday afternoon;
       the last run before the 4pm close wins)
 
---broad: ~90 more liquid names, lighter (OTM only, strikes +-20%, expiries up to 100 days), once a day
+--broad: the rest of the top 100 most-traded option names (86 more), lighter (OTM only, strikes +-20%, expiries up to 100 days), once a day
 (the first run after 2:30pm New York time) -> data/yahoo_broad/YYYY-MM-DD.csv.gz.
 Breadth for testing signals across many stocks; kept separate from the main 14.
 """
@@ -20,13 +20,15 @@ import pandas as pd
 import yfinance as yf
 
 TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "GOOGL", "AMD", "GLD", "TLT", "XLF"]
-BROAD = ["DIA", "EEM", "EFA", "FXI", "EWZ", "XLE", "XLK", "XLV", "XLI", "XLY", "XLP", "XLU", "SMH", "KRE", "SLV",
-         "USO", "HYG", "GDX", "ARKK",
-         "AVGO", "NFLX", "PLTR", "ORCL", "CRM", "ADBE", "CSCO", "INTC", "MU", "QCOM", "TXN", "AMAT", "LRCX", "ARM",
-         "SMCI", "DELL", "IBM", "UBER", "SHOP", "PYPL", "COIN", "HOOD", "MSTR", "SOFI", "SNAP", "ROKU", "BABA", "PDD",
-         "NIO", "JPM", "BAC", "C", "WFC", "GS", "MS", "V", "MA", "AXP", "XOM", "CVX", "OXY", "COP", "UNH", "LLY", "JNJ",
-         "PFE", "MRK", "ABBV", "CVS", "WMT", "COST", "TGT", "HD", "LOW", "NKE", "SBUX", "MCD", "KO", "PEP", "DIS", "T",
-         "VZ", "BA", "CAT", "GE", "F", "GM", "AAL", "DAL", "CCL", "GME", "MRNA", "RIVN"]
+# Top 100 US option underlyings by 2026 average daily option volume (Cboe exchanges, via macroption.com,
+# data to 2026-08-28): the 29 biggest ETFs (leveraged/inverse ETFs and VXX left out) + the top 71 stocks
+# (GOOG left out: same company as GOOGL). The main 14 above are part of it and aren't repeated here.
+BROAD = ["SLV", "IBIT", "USO", "SMH", "ETHA", "GDX", "HYG", "XLE", "EEM", "KWEB", "IGV", "EWZ", "EWY", "EFA", "FXI",
+         "ARKK", "XLP", "KRE", "DIA", "MAGS", "XLI", "SILJ", "XLB", "INTC", "MU", "PLTR", "MSTR", "NFLX", "SMCI",
+         "SOFI", "MARA", "IREN", "SPCX", "ORCL", "AVGO", "HOOD", "NOK", "COIN", "NBIS", "CRWV", "ONDS", "TSM", "BMNR",
+         "BABA", "SNDK", "MRVL", "GME", "ASTS", "HIMS", "WULF", "NOW", "BAC", "RKLB", "OPEN", "RIVN", "MRNA", "WMT",
+         "NKE", "F", "CRCL", "AI", "PFE", "AAL", "PYPL", "BE", "CIFR", "APLD", "SNAP", "NIO", "UNH", "NU", "QCOM",
+         "CORZ", "XOM", "RIOT", "POET", "UBER", "CRM", "RGTI", "IONQ", "AMC", "CVNA", "BA", "EOSE", "SMR", "T"]
 IS_BROAD = "--broad" in sys.argv
 if IS_BROAD:
     TICKERS = BROAD
