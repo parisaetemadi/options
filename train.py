@@ -103,7 +103,8 @@ def load_dataset(groups=("core",), refresh=False):
     it, e.g. after new data is downloaded."""
     CACHE = Path(__file__).parent / "models" / f"dataset_{'_'.join(groups)}.parquet"
     if CACHE.exists() and not refresh:
-        return pd.read_parquet(CACHE)
+        q = pd.read_parquet(CACHE)
+        return q.astype({c: str for c in ("date", "ticker", "type", "expiration")})
     # ---------- 3. Load quotes, clean them, back out IV ----------
     files = sorted(f for g in groups for f in (DATA / "databento" / "quotes" / g).glob("*/*.parquet"))
     q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
@@ -156,6 +157,12 @@ def load_dataset(groups=("core",), refresh=False):
 
 
     q = q.reset_index(drop=True)
+    # keep it compact on a 17 GB laptop: 32-bit numbers (plenty of precision here) and categories
+    for c in q.columns:
+        if q[c].dtype == "float64":
+            q[c] = q[c].astype("float32")
+    for c in ("date", "ticker", "type", "expiration"):
+        q[c] = q[c].astype("category")
     CACHE.parent.mkdir(exist_ok=True)
     q.to_parquet(CACHE, index=False)
     return q

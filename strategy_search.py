@@ -79,7 +79,7 @@ def trade_pnl(entry, h, panel, side):
     """P&L in $ per contract for each entry, held h days, delta-hedged daily, real bid/ask both ways."""
     entry = entry[(entry["day_no"] + h < len(all_days)) & (entry["T"] * 365 >= 7 + np.ceil(h * 7 / 5) + 3)]
     if entry.empty:
-        return entry.assign(pnl=[])
+        return entry.assign(pnl=[], dropped=[])
     hedge, alive = np.zeros(len(entry)), np.ones(len(entry), bool)
     prev_spot, prev_delta = entry["spot"].values, entry["delta"].values
     for k in range(1, h + 1):
