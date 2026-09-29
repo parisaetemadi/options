@@ -203,6 +203,16 @@ def macro_events():
     return m
 
 
+def splits():
+    """Stock split dates and ratios (e.g. NVDA 10-for-1 on 2024-06-10), from Yahoo."""
+    rows = []
+    for t in ALL_TICKERS:
+        for day, ratio in yf.Ticker(t).splits.items():
+            if day.strftime("%Y-%m-%d") >= FIRST:
+                rows.append({"ticker": t, "date": day.strftime("%Y-%m-%d"), "ratio": ratio})
+    return pd.DataFrame(rows, columns=["ticker", "date", "ratio"])
+
+
 def dividends():
     rows, yields = [], []
     for t in ALL_TICKERS:
@@ -239,6 +249,10 @@ if __name__ == "__main__":
     print(m.assign(y=m["release_day"].str[:4]).groupby(["y", "type"]).size().unstack().to_string())
     moved = m[m["release_day"] != m["reaction_day"]]
     print("Released on a market holiday (moved to next session):", moved[["type", "release_day", "reaction_day"]].values.tolist())
+
+    sp = splits()
+    sp.to_csv(OUT / "splits.csv", index=False)
+    print("\nSplits:", sp.values.tolist())
 
     d = dividends()
     d.to_csv(OUT / "dividends.csv", index=False)

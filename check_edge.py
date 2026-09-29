@@ -33,7 +33,10 @@ def nw_tstat(x, lags):
     return x.mean() / np.sqrt(var / n)
 
 
-t = bt.hold(bt.p[bt.p["gap"] > TH], H, keep_dropped=True).reset_index(drop=True)
+import strategy_search as ss
+entries = bt.p[bt.p["gap"] > TH]
+entries = entries[~ss.crosses_split(entries.assign(day_no=entries["date"].map(ss.day_no)), H)]   # see strategy_search
+t = bt.hold(entries, H, keep_dropped=True).reset_index(drop=True)
 alive = t["alive"].values
 print(f"Rule: sell when market IV > model IV + {TH:.0%}, hold {H} days. Trades: {len(t):,} "
       f"({(~alive).sum():,} dropped out of our data before exit = {(~alive).mean():.1%})")

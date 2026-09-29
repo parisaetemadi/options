@@ -61,10 +61,15 @@ def stock_features():
     s = pd.read_csv(DATA / "databento" / "underlying.csv").sort_values(["ticker", "date"])
     g = s.groupby("ticker")["close"]
     s["ret"] = g.transform(lambda c: np.log(c / c.shift(1)))
+    # prices here are the real traded ones (not split-adjusted), so undo the fake move on split days
+    sp = pd.read_csv(DATA / "events" / "splits.csv")
+    s = s.merge(sp, on=["ticker", "date"], how="left")
+    s["ret"] += np.log(s["ratio"].fillna(1.0))
+    s = s.drop(columns="ratio")
     for days in (5, 21, 63):
         s[f"rv{days}"] = s.groupby("ticker")["ret"].transform(lambda r: r.rolling(days).std() * np.sqrt(252))
-    s["ret5"] = g.transform(lambda c: np.log(c / c.shift(5)))
-    s["ret21"] = g.transform(lambda c: np.log(c / c.shift(21)))
+    s["ret5"] = s.groupby("ticker")["ret"].transform(lambda r: r.rolling(5).sum())
+    s["ret21"] = s.groupby("ticker")["ret"].transform(lambda r: r.rolling(21).sum())
     return s.drop(columns=["close", "ret"])
 
 

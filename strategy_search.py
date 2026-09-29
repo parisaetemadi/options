@@ -51,6 +51,17 @@ def nw_tstat(x, lags):
 rates = pd.read_csv(DATA / "market" / "vix_rates.csv")[["date", "tbill"]]
 divs = pd.read_csv(DATA / "events" / "div_yield.csv")
 closes = pd.read_csv(DATA / "databento" / "underlying.csv").set_index(["ticker", "date"])["close"]
+SPLITS = pd.read_csv(DATA / "events" / "splits.csv")
+
+
+def crosses_split(entry, h):
+    """True for trades whose holding period includes a stock split: the option gets a new strike
+    at the split, so our data can't follow it (and pricing it would compare old strike vs new price)."""
+    exit_day = all_days[np.minimum(entry["day_no"].values + h, len(all_days) - 1)]
+    bad = np.zeros(len(entry), bool)
+    for _, sp in SPLITS.iterrows():
+        bad |= (entry["ticker"].values == sp["ticker"]) & (entry["date"].values < sp["date"]) & (exit_day >= sp["date"])
+    return bad
 all_days = np.array(sorted(f.stem for f in (DATA / "databento" / "quotes" / "core").glob("*/*.parquet")))
 day_no = {d: i for i, d in enumerate(all_days)}
 
@@ -78,6 +89,7 @@ def panel_for(days):
 def trade_pnl(entry, h, panel, side):
     """P&L in $ per contract for each entry, held h days, delta-hedged daily, real bid/ask both ways."""
     entry = entry[(entry["day_no"] + h < len(all_days)) & (entry["T"] * 365 >= 7 + np.ceil(h * 7 / 5) + 3)]
+    entry = entry[~crosses_split(entry, h)]
     if entry.empty:
         return entry.assign(pnl=[], dropped=[])
     hedge, alive = np.zeros(len(entry)), np.ones(len(entry), bool)
