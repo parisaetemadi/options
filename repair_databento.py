@@ -9,7 +9,7 @@ quotes come back empty or missing until next week's list.
 Fix: for each flagged day, buy that exact day's contract list for just the problem tickers,
 re-download their quotes, and replace them in that day's file. Costs a few cents per day.
 
-Run:  python repair_databento.py
+Run:  python repair_databento.py --group core
 """
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -21,7 +21,7 @@ MIN_SHARE = 0.5     # ...or it has under half the contracts it had the previous 
 
 
 def broken_tickers(day, prev):
-    q = pd.read_parquet(dd.OUT / "quotes" / day[:4] / f"{day}.parquet").astype({"ticker": str})
+    q = pd.read_parquet(dd.quote_path(day)).astype({"ticker": str})
     live = ((q["bid"] > 0) & (q["ask"] > 0)).groupby(q["ticker"]).mean()
     count = q.groupby("ticker").size()
     prev_count = prev.groupby("ticker").size() if prev is not None else count
@@ -30,8 +30,10 @@ def broken_tickers(day, prev):
     return sorted(bad), q
 
 
-def main():
-    qc = pd.read_csv(dd.OUT / "quality.csv").drop_duplicates("date", keep="last")
+def main(group):
+    dd.GROUP, dd.TICKERS = group, dd.GROUPS[group]
+    qfile = dd.OUT / f"quality_{group}.csv"
+    qc = pd.read_csv(qfile).drop_duplicates("date", keep="last")
     flags = qc["flags"].fillna("")
     flagged = qc[(flags != "") & (flags != "crossed quotes") & ~flags.str.startswith("repaired")]
     closes = pd.read_csv(dd.OUT / "underlying.csv").set_index(["ticker", "date"])["close"]
@@ -42,7 +44,7 @@ def main():
 
     for day in sorted(flagged["date"]):
         i = days.index(day)
-        prev_path = dd.OUT / "quotes" / days[i - 1][:4] / f"{days[i - 1]}.parquet"
+        prev_path = dd.quote_path(days[i - 1])
         prev = pd.read_parquet(prev_path).astype({"ticker": str}) if prev_path.exists() else None
         bad, q = broken_tickers(day, prev)
         if not bad:
@@ -50,15 +52,9 @@ def main():
             continue
         # fresh contract list for exactly this day, only the broken tickers
         nxt = days[i + 1] if i + 1 < len(days) else day
-        defs = dd.get("definition", [f"{t}.OPT" for t in bad], "parent", day, nxt, f"repair definitions {day}")
-        defs = defs.drop_duplicates("raw_symbol")
-        defs = pd.DataFrame({"raw_symbol": defs["raw_symbol"].values, "ticker": defs["underlying"].values,
-                             "type": ["call" if c == "C" else "put" for c in defs["instrument_class"].values],
-                             "strike": defs["strike_price"].values,
-                             "expiration": pd.to_datetime(defs["expiration"]).dt.strftime("%Y-%m-%d").values})
-        defs = defs[defs["raw_symbol"].str[:6].str.strip() == defs["ticker"]]
+        defs = dd.buy_definitions(bad, day, nxt, f"repair definitions {group} {day}")
         spot = closes.xs(day, level="date")[bad]
-        fixed_path = dd.OUT / "quotes" / day[:4] / f"{day}.parquet"
+        fixed_path = dd.quote_path(day)
         backup = q.copy()
         # download_day writes the day file (and a quality row) for just these tickers...
         fixed_qc = dd.download_day(day, pd.Timestamp(sched.loc[day, "market_close"]), defs, spot)
@@ -76,7 +72,7 @@ def main():
                        "crossed": int((live_all["bid"] > live_all["ask"]).sum()),
                        "median_spread": round(((live_all["ask"] - live_all["bid"]) / ((live_all["ask"] + live_all["bid"]) / 2)).median(), 4),
                        "tickers": merged["ticker"].nunique(), "cost": fixed_qc["cost"],
-                       "flags": f"repaired {','.join(bad)}"}]).to_csv(dd.OUT / "quality.csv", mode="a", header=False, index=False)
+                       "flags": f"repaired {','.join(bad)}"}]).to_csv(qfile, mode="a", header=False, index=False)
         live = ((fixed["bid"] > 0) & (fixed["ask"] > 0)).mean()
         print(f"{day}: repaired {bad}: {len(backup[backup['ticker'].isin(bad)]):,} -> {len(fixed):,} contracts, "
               f"{live:.0%} live, ${fixed_qc['cost']:.4f}")
@@ -84,4 +80,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    p = argparse.ArgumentParser()
+    p.add_argument("--group", choices=list(dd.GROUPS), default="core")
+    main(p.parse_args().group)

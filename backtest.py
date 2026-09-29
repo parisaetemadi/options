@@ -58,7 +58,7 @@ print(f"Test period {days[0]} to {days[-1]} ({len(days)} days), {len(p):,} optio
 # rebuilds its price exactly from the out-of-the-money option at the same strike:
 #     call - put = stock * e^(-qT) - strike * e^(-rT)
 DATA = Path(__file__).parent / "data"
-test_files = [f for f in sorted((DATA / "databento" / "quotes").glob("*/*.parquet")) if days[0] <= f.stem <= days[-1]]
+test_files = [f for f in sorted((DATA / "databento" / "quotes").glob("*/*/*.parquet")) if days[0] <= f.stem <= days[-1]]
 full = pd.concat([pd.read_parquet(f) for f in test_files], ignore_index=True)   # ALL quotes, incl. zero bids
 full = full.astype({"date": str, "ticker": str, "type": str, "expiration": str})
 full = full[full["date"].isin(day_no)]

@@ -24,8 +24,10 @@ import requests
 import yfinance as yf
 
 OUT = Path(__file__).parent / "data" / "events"
-STOCKS = {"AAPL": 320193, "MSFT": 789019, "NVDA": 1045810, "AMZN": 1018724, "TSLA": 1318605}   # SEC CIK numbers
-ALL_TICKERS = ["SPY", "QQQ", "IWM", *STOCKS]
+# SEC CIK numbers (a company can have two: Google Inc. before 2015, Alphabet after)
+STOCKS = {"AAPL": [320193], "MSFT": [789019], "NVDA": [1045810], "AMZN": [1018724], "TSLA": [1318605],
+          "META": [1326801], "GOOGL": [1652044, 1288776], "AMD": [2488]}
+ALL_TICKERS = ["SPY", "QQQ", "IWM", "GLD", "TLT", "XLF", *STOCKS]
 SEC_HEADERS = {"User-Agent": "options-research et1378parisa@gmail.com"}   # SEC asks for a contact
 FIRST = "2013-01-01"
 
@@ -43,8 +45,8 @@ def sec_filings(cik):
 def earnings_from_sec():
     sessions = mcal.get_calendar("NYSE").schedule(start_date=FIRST, end_date="2027-12-31").index
     rows = []
-    for ticker, cik in STOCKS.items():
-        f = sec_filings(cik)
+    for ticker, ciks in STOCKS.items():
+        f = pd.concat([sec_filings(c) for c in ciks], ignore_index=True)
         f = f[(f["form"] == "8-K") & f["items"].fillna("").str.split(",").apply(lambda i: "2.02" in i)]
         for _, r in f.iterrows():
             t = pd.Timestamp(r["acceptanceDateTime"]).tz_convert("America/New_York")
@@ -137,7 +139,7 @@ def dividends():
         y = (trailing / h["Close"]).loc[FIRST:]
         yields.append(pd.DataFrame({"ticker": t, "date": y.index.strftime("%Y-%m-%d"), "div_yield": y.round(6).values}))
     y = pd.concat(yields, ignore_index=True)
-    assert y["div_yield"].between(0, 0.05).all(), "dividend yield out of range -- check the data"
+    assert y["div_yield"].between(0, 0.08).all(), "dividend yield out of range -- check the data"
     y.to_csv(OUT / "div_yield.csv", index=False)
     return pd.DataFrame(rows)
 

@@ -23,7 +23,7 @@ def pct(x):
 
 
 # ---------- 1. Databento daily quality ----------
-q = pd.read_csv(DB / "quality.csv").drop_duplicates("date", keep="last")
+q = pd.concat([pd.read_csv(f).assign(group=f.stem.split("_", 1)[1]) for f in DB.glob("quality_*.csv")]).drop_duplicates(["group", "date"], keep="last")
 print(f"1. Databento: {len(q):,} days  ({q['date'].min()} to {q['date'].max()}), "
       f"${q['cost'].sum():.2f} on quotes")
 print(f"   coverage: median {pct(q['coverage'].median())}, worst {pct(q['coverage'].min())}")
@@ -36,7 +36,7 @@ if len(flagged):
 
 
 # ---------- 2. Databento vs Massive, contract by contract ----------
-files = sorted((DB / "quotes").glob("*/*.parquet"))
+files = sorted((DB / "quotes").glob("*/*/*.parquet"))   # quotes/<group>/<year>/<day>.parquet
 bars = pd.concat([pd.read_csv(p) for p in (MS / "bars").glob("*.csv")], ignore_index=True)
 bars = bars[bars["date"].isin({f.stem for f in files})]
 if len(bars):

@@ -8,11 +8,15 @@ For each trading day (newest first, going back to 2013):
     7 days to 1 year to expiry. That's ~5x cheaper than downloading every contract.
 Contract lists ("definitions") are bought once a week and reused for that week.
 
-Every day is quality-checked (coverage, bid <= ask, spreads) into data/databento/quality.csv.
-Spending is tracked in data/databento/spent.json and it stops before BUDGET.
+Tickers come in groups, each stored separately (data/databento/quotes/<group>/...):
+  core:  the original 8           extra: 6 more liquid names added later
+Meta's options traded as "FB" until 2022-06-09; that's handled automatically.
+
+Every day is quality-checked (coverage, bid <= ask, spreads) into data/databento/quality_<group>.csv.
+Spending (shared by all groups) is tracked in data/databento/spent.json and it stops before BUDGET.
 Safe to stop and re-run: finished days are skipped.
 
-Run:  python download_databento.py            (add --days 5 to try a few days first)
+Run:  python download_databento.py --group core     (add --days 5 to try a few days first)
 """
 import argparse
 import json
@@ -28,7 +32,12 @@ import pandas as pd
 import pandas_market_calendars as mcal
 import yfinance as yf
 
-TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]
+GROUPS = {"core": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA"],
+          "extra": ["META", "GOOGL", "AMD", "GLD", "TLT", "XLF"]}
+ALL_TICKERS = [t for g in GROUPS.values() for t in g]
+OLD_ROOTS = {"META": ("FB", "2022-06-09")}   # options root before that date (Facebook -> Meta rename)
+TICKERS = GROUPS["core"]                     # set by --group
+GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 BUDGET = 120.0                # hard stop (free credit is $125; keep a buffer)
@@ -98,7 +107,7 @@ def retry(f, **kw):
 def stock_closes():
     """Real traded closes (option strikes are in these units, so undo split adjustments)."""
     rows = []
-    for t in TICKERS:
+    for t in ALL_TICKERS:
         tk = yf.Ticker(t)
         h = tk.history(start=FIRST_DAY, auto_adjust=False)["Close"]
         h.index = h.index.tz_localize(None).normalize()
@@ -119,12 +128,16 @@ def definitions(day):
     with _def_lock:
         return _definitions(day)
 
-def _definitions(day):
-    path = OUT / "definitions" / f"{day}.parquet"
-    if path.exists():
-        return pd.read_parquet(path)
-    nxt = (pd.Timestamp(day) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    d = get("definition", [f"{t}.OPT" for t in TICKERS], "parent", day, nxt, f"definitions {day}")
+def root(ticker, day):
+    """The options' trading symbol on that day (e.g. Meta's were "FB" before 2022-06-09)."""
+    old = OLD_ROOTS.get(ticker)
+    return old[0] if old and day < old[1] else ticker
+
+
+def buy_definitions(tickers, day, nxt, what):
+    """Contract list for these tickers on this day, standard contracts only, with our ticker names."""
+    roots = {root(t, day): t for t in tickers}
+    d = get("definition", [f"{r}.OPT" for r in roots], "parent", day, nxt, what)
     d = d.drop_duplicates("raw_symbol")
     d = pd.DataFrame({"raw_symbol": d["raw_symbol"].values,
                       "ticker": d["underlying"].values,
@@ -133,6 +146,16 @@ def _definitions(day):
                       "expiration": pd.to_datetime(d["expiration"]).dt.strftime("%Y-%m-%d").values})
     # keep only standard contracts (adjusted ones after corporate actions have odd roots like "AAPL1")
     d = d[d["raw_symbol"].str[:6].str.strip() == d["ticker"]]
+    d["ticker"] = d["ticker"].map(roots)             # "FB" -> "META"
+    return d.dropna(subset=["ticker"])
+
+
+def _definitions(day):
+    path = OUT / "definitions" / GROUP / f"{day}.parquet"
+    if path.exists():
+        return pd.read_parquet(path)
+    nxt = (pd.Timestamp(day) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    d = buy_definitions(TICKERS, day, nxt, f"definitions {GROUP} {day}")
     path.parent.mkdir(parents=True, exist_ok=True)
     d.to_parquet(path, index=False, compression="zstd")
     return d
@@ -170,11 +193,11 @@ def download_day(day, close_utc, defs, spot):
         parts = list(pool.map(lambda s: get("cbbo-1m", s, "raw_symbol", start, end, f"quotes {day}", bill), chunks))
     q = pd.concat(parts) if parts else pd.DataFrame()
     # keep the raw purchase first, so a bug below never means paying twice
-    raw = OUT / "raw" / f"{day}.parquet"
+    raw = OUT / "raw" / GROUP / f"{day}.parquet"
     raw.parent.mkdir(parents=True, exist_ok=True)
     q.to_parquet(raw, compression="zstd")
     out = tidy(day, want, q, end)
-    path = OUT / "quotes" / day[:4] / f"{day}.parquet"
+    path = quote_path(day)
     path.parent.mkdir(parents=True, exist_ok=True)
     for col in ("date", "ticker", "type", "expiration"):
         out[col] = out[col].astype("category")
@@ -193,13 +216,36 @@ def download_day(day, close_utc, defs, spot):
                                   (qc["crossed"] > 0, "crossed quotes"),
                                   (qc["tickers"] < spot.size, "missing tickers")] if bad]
     qc["flags"] = "; ".join(flags)
+    qfile = OUT / f"quality_{GROUP}.csv"
     with _lock:
-        pd.DataFrame([qc]).to_csv(OUT / "quality.csv", mode="a", index=False,
-                                  header=not (OUT / "quality.csv").exists())
+        pd.DataFrame([qc]).to_csv(qfile, mode="a", index=False, header=not qfile.exists())
     return qc
 
 
-def main(max_days):
+def quote_path(day, group=None):
+    return OUT / "quotes" / (group or GROUP) / day[:4] / f"{day}.parquet"
+
+
+def migrate_old_layout():
+    """Files from before ticker groups existed belong to "core": move them into the new folders."""
+    moves = [(p, OUT / "quotes" / "core" / p.parent.name / p.name) for p in (OUT / "quotes").glob("[0-9]*/*.parquet")]
+    moves += [(p, OUT / "definitions" / "core" / p.name) for p in (OUT / "definitions").glob("*.parquet")]
+    moves += [(p, OUT / "raw" / "core" / p.name) for p in (OUT / "raw").glob("*.parquet")]
+    for name in ("quality.csv", "COMPLETE", "REPAIRED"):
+        if (OUT / name).exists():
+            moves.append((OUT / name, OUT / name.replace(".csv", "_core.csv") if name.endswith(".csv") else OUT / f"{name}_core"))
+    for src, dst in moves:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        src.rename(dst)
+    for d in (OUT / "quotes").glob("[0-9]*"):
+        d.rmdir()
+    if moves:
+        print(f"Moved {len(moves):,} files from the old layout into the 'core' group.")
+
+
+def main(max_days, group):
+    global GROUP, TICKERS
+    GROUP, TICKERS = group, GROUPS[group]
     OUT.mkdir(parents=True, exist_ok=True)
     # never run two copies at once (they would buy the same days twice)
     import fcntl
@@ -208,7 +254,8 @@ def main(max_days):
         fcntl.flock(main.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit("Another download is already running -- exiting.")
-    print("Stock closes from Yahoo...")
+    migrate_old_layout()
+    print(f"Group '{GROUP}': {', '.join(TICKERS)}. Stock closes from Yahoo...")
     closes = stock_closes()
 
     yesterday = (pd.Timestamp.now(tz="America/New_York") - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
@@ -220,17 +267,17 @@ def main(max_days):
     todo = []
     for (_, row), week_start in zip(sched[::-1].iterrows(), first_of_week[::-1]):   # newest first
         day = row["day"]
-        if (OUT / "quotes" / day[:4] / f"{day}.parquet").exists():
+        if quote_path(day).exists():
             continue
         if len(todo) >= max_days:
             break
         try:
-            todo.append((day, row["market_close"], week_start, closes.xs(day, level="date")))
+            todo.append((day, row["market_close"], week_start, closes.xs(day, level="date")[TICKERS]))
         except KeyError:
             print(f"{day}: no stock prices, skipping")
     print(f"{len(todo):,} days to download")
     if not todo:
-        (OUT / "COMPLETE").write_text(f"All days downloaded ({pd.Timestamp.now():%Y-%m-%d %H:%M})\n")
+        (OUT / f"COMPLETE_{GROUP}").write_text(f"All days downloaded ({pd.Timestamp.now():%Y-%m-%d %H:%M})\n")
 
     def one(job):
         day, close_utc, week_start, spot = job
@@ -253,4 +300,6 @@ def main(max_days):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--days", type=int, default=10**6, help="stop after this many days (for testing)")
-    main(p.parse_args().days)
+    p.add_argument("--group", choices=list(GROUPS), default="core")
+    a = p.parse_args()
+    main(a.days, a.group)

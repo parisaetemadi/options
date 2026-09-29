@@ -89,7 +89,7 @@ def add_events(q):
 
 
 # ---------- 3. Load quotes, clean them, back out IV ----------
-files = sorted((DATA / "databento" / "quotes").glob("*/*.parquet"))
+files = sorted((DATA / "databento" / "quotes").glob("*/*/*.parquet"))
 q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
 q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
 n0 = len(q)
