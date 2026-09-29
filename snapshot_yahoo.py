@@ -6,7 +6,12 @@ bid/ask, so this builds our own day-by-day history of quotes going forward.
 One file per day: data/yahoo/YYYY-MM-DD.csv.gz
 Run:  python snapshot_yahoo.py      (on GitHub it runs by itself several times every weekday afternoon;
       the last run before the 4pm close wins)
+
+--broad: ~90 more liquid names, lighter (OTM only, strikes +-20%, expiries up to 100 days), once a day
+(the first run after 2:30pm New York time) -> data/yahoo_broad/YYYY-MM-DD.csv.gz.
+Breadth for testing signals across many stocks; kept separate from the main 14.
 """
+import sys
 import time
 from pathlib import Path
 
@@ -15,9 +20,19 @@ import pandas as pd
 import yfinance as yf
 
 TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "GOOGL", "AMD", "GLD", "TLT", "XLF"]
-STRIKE_RANGE = 0.30     # keep strikes within +-30% of the stock price
-MAX_DAYS = 400          # keep expirations up to ~13 months out
-OUT = Path(__file__).parent / "data" / "yahoo"
+BROAD = ["DIA", "EEM", "EFA", "FXI", "EWZ", "XLE", "XLK", "XLV", "XLI", "XLY", "XLP", "XLU", "SMH", "KRE", "SLV",
+         "USO", "HYG", "GDX", "ARKK",
+         "AVGO", "NFLX", "PLTR", "ORCL", "CRM", "ADBE", "CSCO", "INTC", "MU", "QCOM", "TXN", "AMAT", "LRCX", "ARM",
+         "SMCI", "DELL", "IBM", "UBER", "SHOP", "PYPL", "COIN", "HOOD", "MSTR", "SOFI", "SNAP", "ROKU", "BABA", "PDD",
+         "NIO", "JPM", "BAC", "C", "WFC", "GS", "MS", "V", "MA", "AXP", "XOM", "CVX", "OXY", "COP", "UNH", "LLY", "JNJ",
+         "PFE", "MRK", "ABBV", "CVS", "WMT", "COST", "TGT", "HD", "LOW", "NKE", "SBUX", "MCD", "KO", "PEP", "DIS", "T",
+         "VZ", "BA", "CAT", "GE", "F", "GM", "AAL", "DAL", "CCL", "GME", "MRNA", "RIVN"]
+IS_BROAD = "--broad" in sys.argv
+if IS_BROAD:
+    TICKERS = BROAD
+STRIKE_RANGE = 0.20 if IS_BROAD else 0.30   # keep strikes within this range of the stock price
+MAX_DAYS = 100 if IS_BROAD else 400         # keep expirations up to this many days out
+OUT = Path(__file__).parent / "data" / ("yahoo_broad" if IS_BROAD else "yahoo")
 
 
 def retry(f, *args, tries=4):
@@ -43,6 +58,8 @@ def snapshot(ticker, now):
         chain = retry(tk.option_chain, exp)
         for kind, t in (("call", chain.calls), ("put", chain.puts)):
             t = t[(t["strike"] / spot - 1).abs() <= STRIKE_RANGE]
+            if IS_BROAD:                                          # out-of-the-money only
+                t = t[t["strike"] > spot] if kind == "call" else t[t["strike"] < spot]
             tables.append(pd.DataFrame({
                 "snapshot_time": now.strftime("%Y-%m-%d %H:%M %Z"),
                 "ticker": ticker, "spot": round(spot, 4), "expiration": exp, "type": kind,
@@ -64,11 +81,17 @@ def main():
     if minute < 9 * 60 + 30:
         return print("Market hasn't opened yet -- nothing to save.")
     path = OUT / f"{now:%Y-%m-%d}.csv.gz"
+    if IS_BROAD and (minute < 14 * 60 + 30 or path.exists()):
+        return print("Broad list: once a day, first run after 2:30pm -- nothing to do now.")
     if minute >= 16 * 60 and path.exists():
         return print("Already have today's snapshot from before the close -- keeping it.")
     frames = []
     for t in TICKERS:
-        df = snapshot(t, now)
+        try:
+            df = snapshot(t, now)
+        except Exception as e:                    # one bad ticker shouldn't lose the whole day
+            print(f"{t}: FAILED ({str(e)[:100]})")
+            continue
         live = ((df["bid"] > 0) & (df["ask"] > 0)).sum() if len(df) else 0
         print(f"{t}: {len(df)} options, {live} with a live bid/ask")
         frames.append(df)
