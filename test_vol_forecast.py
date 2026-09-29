@@ -1,12 +1,15 @@
 """
-Do range-based volatilities (data/stocks/range_vol.csv, from daily open/high/low/close) forecast
-how much a stock will REALLY move over the next 21 trading days better than close-only ones?
+Do new inputs (default: range-based vols from daily open/high/low/close) forecast how much a stock
+will REALLY move over the next 21 trading days better than what we already use?
 
 Same year-by-year forecast as vrp.py (each year trained only on earlier years), run twice:
 without and with the new inputs. Errors are over 2016-today.
 
-Run:  python test_vol_forecast.py
+Run:  python test_vol_forecast.py                                  (range-based vols)
+      python test_vol_forecast.py data/market/epu.csv epu_log epu7  (any csv: ticker+date or date only)
 """
+import sys
+
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -14,7 +17,8 @@ import pandas as pd
 import train as tr
 
 H = 21
-NEW = ["rs5", "rs21", "rs63", "on_share21"]
+PATH, NEW = (sys.argv[1], sys.argv[2:]) if len(sys.argv) > 2 else \
+    ("data/stocks/range_vol.csv", ["rs5", "rs21", "rs63", "on_share21"])
 BASE = ["rv5", "rv21", "rv63", "atm30", "vix_prev", "days_to_event", "days_to_fomc", "days_to_cpi", "days_to_jobs"]
 
 q = pd.read_parquet(tr.Path(tr.__file__).parent / "models" / "dataset_core.parquet", columns=["date", "ticker"] + BASE)
@@ -27,8 +31,10 @@ s = s.merge(pd.read_csv(tr.DATA / "events" / "splits.csv"), on=["ticker", "date"
 s["ret"] += np.log(s["ratio"].fillna(1.0))
 s["rv_fwd"] = s.groupby("ticker")["ret"].transform(lambda r: np.sqrt((r**2).rolling(H).sum().shift(-H) * 252 / H))
 day = (day.merge(s[["ticker", "date", "rv_fwd"]], on=["ticker", "date"])
-          .merge(pd.read_csv(tr.DATA / "stocks" / "range_vol.csv"), on=["ticker", "date"], how="left")
-          .dropna(subset=["rv_fwd", "rv63", "atm30", "rs63"]))
+          .dropna(subset=["rv_fwd", "rv63", "atm30"]))
+extra = pd.read_csv(tr.Path(tr.__file__).parent / PATH)
+day = day.merge(extra[[c for c in ("ticker", "date") if c in extra] + NEW],
+                on=[c for c in ("ticker", "date") if c in extra], how="left").dropna(subset=NEW)
 tickers = sorted(day["ticker"].unique())
 LOGS = ["rv5", "rv21", "rv63", "atm30", "rs5", "rs21", "rs63"]
 
