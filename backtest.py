@@ -79,10 +79,10 @@ mirror = full.assign(type=np.where(is_call, "put", "call"),
                      delta=full["delta"] + np.where(is_call, -1.0, 1.0) * np.exp(-full["div_yield"] * full["T"]))
 panel = (pd.concat([full.assign(real=True), mirror.assign(real=False)])
          .drop_duplicates(key + ["day_no"], keep="first")          # real quotes win over rebuilt ones
-         .set_index(key + ["day_no"])[["bid", "ask", "mid", "spot", "delta"]])
+         .set_index(key + ["day_no"])[["bid", "ask", "mid", "spot", "delta", "real"]])
 
 
-def hold(entry, h):
+def hold(entry, h, keep_dropped=False):
     """Follow each entry for h trading days, re-hedging daily. Returns entry rows with P&L columns.
     Only trades that can be held the whole time: exit inside the test period, and the option
     still at least a week from expiry at exit (our data stops at 7 days to expiry)."""
@@ -103,8 +103,9 @@ def hold(entry, h):
     out["alive"] = alive
     hold.dropped.append(1 - alive.mean() if len(alive) else 0)
     out["exit_mid"], out["exit_bid"], out["exit_ask"] = nd["mid"].values, nd["bid"].values, nd["ask"].values
+    out["exit_real"] = nd["real"].values                # False = exit price rebuilt by put-call parity
     out["hedge"] = hedge
-    return out[out["alive"]]
+    return out if keep_dropped else out[out["alive"]]
 
 
 hold.dropped = []
@@ -122,29 +123,30 @@ def summarize(name, side, t):
             "t-stat": daily.mean() / daily.std() * np.sqrt(len(daily)) if len(daily) > 2 else np.nan}
 
 
-rules = {
-    "gap > 3 vol pts": (p["gap"] < -0.03, p["gap"] > 0.03),
-    "model price outside quote": (p["model_price"] > p["ask"], p["model_price"] < p["bid"]),
-    "outside quote by 10%+ of spread": (p["model_price"] > p["ask"] + 0.1 * (p["ask"] - p["bid"]),
-                                        p["model_price"] < p["bid"] - 0.1 * (p["ask"] - p["bid"])),
-}
-rng = np.random.default_rng(0)
-rand = pd.Series(rng.random(len(p)) < 0.03, index=p.index)
+if __name__ == "__main__":
+    rules = {
+        "gap > 3 vol pts": (p["gap"] < -0.03, p["gap"] > 0.03),
+        "model price outside quote": (p["model_price"] > p["ask"], p["model_price"] < p["bid"]),
+        "outside quote by 10%+ of spread": (p["model_price"] > p["ask"] + 0.1 * (p["ask"] - p["bid"]),
+                                            p["model_price"] < p["bid"] - 0.1 * (p["ask"] - p["bid"])),
+    }
+    rng = np.random.default_rng(0)
+    rand = pd.Series(rng.random(len(p)) < 0.03, index=p.index)
 
-for h in HOLD_DAYS:
-    rows = []
-    for name, (buy_sel, sell_sel) in rules.items():
-        rows.append(summarize(name, "buy", hold(p[buy_sel], h)))
-        rows.append(summarize(name, "sell", hold(p[sell_sel], h)))
-    rows.append(summarize("random (no skill)", "buy", hold(p[rand], h)))
-    rows.append(summarize("random (no skill)", "sell", hold(p[rand], h)))
-    r = pd.DataFrame(rows)
-    print(f"Held {h} trading day(s), delta-hedged daily, 1 contract per trade "
-          f"(trades dropped for missing data: {np.mean(hold.dropped):.1%}):")
-    hold.dropped.clear()
-    print(r.to_string(index=False, formatters={
-        "trades": "{:,}".format, "$/trade mid-to-mid": "${:,.2f}".format, "$/trade real": "${:,.2f}".format,
-        "% days profitable": "{:.0%}".format, "t-stat": "{:.1f}".format}))
-    print()
-print("'real' = buy at the ask / sell at the bid, both ways. t-stat above ~2 = unlikely to be luck.")
-print("Options that moved in-the-money are priced by put-call parity; only moves beyond +-20% are dropped.")
+    for h in HOLD_DAYS:
+        rows = []
+        for name, (buy_sel, sell_sel) in rules.items():
+            rows.append(summarize(name, "buy", hold(p[buy_sel], h)))
+            rows.append(summarize(name, "sell", hold(p[sell_sel], h)))
+        rows.append(summarize("random (no skill)", "buy", hold(p[rand], h)))
+        rows.append(summarize("random (no skill)", "sell", hold(p[rand], h)))
+        r = pd.DataFrame(rows)
+        print(f"Held {h} trading day(s), delta-hedged daily, 1 contract per trade "
+              f"(trades dropped for missing data: {np.mean(hold.dropped):.1%}):")
+        hold.dropped.clear()
+        print(r.to_string(index=False, formatters={
+            "trades": "{:,}".format, "$/trade mid-to-mid": "${:,.2f}".format, "$/trade real": "${:,.2f}".format,
+            "% days profitable": "{:.0%}".format, "t-stat": "{:.1f}".format}))
+        print()
+    print("'real' = buy at the ask / sell at the bid, both ways. t-stat above ~2 = unlikely to be luck.")
+    print("Options that moved in-the-money are priced by put-call parity; only moves beyond +-20% are dropped.")
