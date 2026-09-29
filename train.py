@@ -7,8 +7,8 @@ The model predicts each option's implied volatility (IV) from things known at th
   - the option: how far the strike is from the stock price, time to expiry
   - the stock: how much it has been moving lately (5/21/63 days), recent returns
   - the market: yesterday's VIX ("fear gauge"), and which ticker it is
-  - scheduled events: days until the next earnings (or Tesla delivery report),
-    and whether it happens before the option expires
+  - scheduled events: days until the next earnings (or Tesla delivery report), Fed decision,
+    CPI and jobs report, and whether each happens before the option expires
 Plug the IV into Black-Scholes (with the real T-bill rate and the stock's dividend yield)
 and you get a price. Run fetch_events.py first to refresh earnings/dividends.
 
@@ -82,6 +82,15 @@ def add_events(q):
     days = (q["event_day"] - q["day"]).dt.days
     q["days_to_event"] = days.fillna(NO_EVENT_DAYS).clip(upper=NO_EVENT_DAYS)
     q["event_before_expiry"] = (q["event_day"] <= pd.to_datetime(q["expiration"])).astype(float)
+    # economic announcements (same for every ticker): Fed decisions, CPI, jobs reports
+    mac = pd.read_csv(DATA / "events" / "macro.csv")
+    for kind in ("fomc", "cpi", "jobs"):
+        e = pd.DataFrame({"mday": pd.to_datetime(mac.loc[mac["type"] == kind, "reaction_day"])}).sort_values("mday")
+        q = pd.merge_asof(q.sort_values("day"), e, left_on="day", right_on="mday",
+                          direction="forward", allow_exact_matches=False)
+        q[f"days_to_{kind}"] = (q["mday"] - q["day"]).dt.days.fillna(NO_EVENT_DAYS).clip(upper=NO_EVENT_DAYS)
+        q[f"{kind}_before_expiry"] = (q["mday"] <= pd.to_datetime(q["expiration"])).astype(float)
+        q = q.drop(columns="mday")
     dy = pd.read_csv(DATA / "events" / "div_yield.csv")
     q = q.merge(dy, on=["ticker", "date"], how="left")
     q["div_yield"] = q["div_yield"].fillna(0.0)                # AMZN, TSLA pay none
@@ -147,7 +156,8 @@ print(f"Train: {len(train):,} options before {cutoff}   Test: {len(test):,} opti
 
 TICKERS = sorted(q["ticker"].unique())
 NUMERIC = ["x", "log_m", "sqrt_T", "atm_iv", "atm30", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
-           "days_to_event", "event_before_expiry"]
+           "days_to_event", "event_before_expiry",
+           "days_to_fomc", "fomc_before_expiry", "days_to_cpi", "cpi_before_expiry", "days_to_jobs", "jobs_before_expiry"]
 FEATURES = NUMERIC + [f"is_{t}" for t in TICKERS]
 
 def features(d):

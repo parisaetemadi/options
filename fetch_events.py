@@ -11,12 +11,19 @@ from Yahoo's calendar, since the SEC only has past ones.
 Event types: "earnings", "deliveries" (Tesla's quarterly delivery report) and "other"
 (unscheduled news like profit warnings -- kept for reference, not used as a model input).
 
+Economic announcements (data/events/macro.csv), from the official sources:
+  fomc: Fed rate decisions (statement at 2pm) -- regular meetings only, from federalreserve.gov
+  cpi:  inflation report (8:30am), from bls.gov      jobs: jobs report (8:30am), from bls.gov
+Past dates come from the archives, upcoming ones from the published schedules.
+
 Dividends: from Yahoo (ex-dividend date and amount), for stocks and ETFs, plus each day's
 trailing 12-month dividend yield (data/events/div_yield.csv) for Black-Scholes.
 
 Run:  python fetch_events.py
 """
 from pathlib import Path
+
+import re
 
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -127,6 +134,75 @@ def check_against_yahoo(e):
               + ("" if match.all() else f"  -- not on Yahoo: {sec.loc[~match, 'filed_ny'].tolist()}"))
 
 
+BROWSER = {"User-Agent": "Mozilla/5.0 (options-research et1378parisa@gmail.com)"}
+MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
+
+
+def page_text(url):
+    html = requests.get(url, headers=BROWSER, timeout=30).text
+    return html, re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+
+def fomc_meetings():
+    """End day of every regular FOMC meeting (the statement comes out at 2pm that day)."""
+    abbr = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec"
+    # "January 28-29", "April 30-May 1", or across months in short form: "Jan/Feb 31-1"
+    date = rf"(?:({MONTHS}) (\d{{1,2}})(?:-(?:({MONTHS}) )?(\d{{1,2}}))?|(?:{abbr})/({abbr}) \d{{1,2}}-(\d{{1,2}}))"
+    skip = r"\((?:unscheduled|cancelled|notation vote)\)"
+
+    def end_days(text, year, tail):
+        out = []
+        for m in re.finditer(date + rf"\*?(?![\d,-])( {skip})?{tail}", text):   # not "January 25-26, 2028" notes
+            if m.group(7):
+                continue                                  # emergency / cancelled: not known in advance
+            if m.group(5):
+                out.append(pd.Timestamp(f"{m.group(5)} {m.group(6)} {year}"))
+            else:
+                out.append(pd.Timestamp(f"{m.group(3) or m.group(1)} {m.group(4) or m.group(2)} {year}"))
+        return out
+
+    days = []
+    _, t = page_text("https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm")
+    on_calendar = []
+    for sec in re.finditer(r"(\d{4}) FOMC Meetings(.*?)(?=\d{4} FOMC Meetings|Last Update)", t):
+        on_calendar.append(int(sec.group(1)))
+        days += end_days(sec.group(2), int(sec.group(1)), "")
+    for year in range(2013, min(on_calendar)):             # older years: history pages
+        _, t = page_text(f"https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm")
+        days += end_days(t, year, " Meeting")
+    return sorted({d.strftime("%Y-%m-%d") for d in days})
+
+
+def bls_dates(name):
+    """Release dates of a BLS report: past ones from its archive, upcoming from its schedule."""
+    html, _ = page_text(f"https://www.bls.gov/bls/news-release/{name}.htm")
+    past = {f"{y}-{m}-{d}" for m, d, y in re.findall(rf"archives/{name}_(\d{{2}})(\d{{2}})(\d{{4}})\.htm", html)}
+    _, t = page_text(f"https://www.bls.gov/schedule/news_release/{name}.htm")
+    upcoming = {pd.Timestamp(f"{m} {d} {y}").strftime("%Y-%m-%d")
+                for m, d, y in re.findall(r"\b([A-Z][a-z]{2})\.? (\d{1,2}), (\d{4})\s+08:30", t)}
+    return sorted(d for d in past | upcoming if d >= FIRST)
+
+
+def macro_events():
+    sessions = mcal.get_calendar("NYSE").schedule(start_date=FIRST, end_date="2027-12-31").index
+    rows = []
+    for kind, days in (("fomc", fomc_meetings()), ("cpi", bls_dates("cpi")), ("jobs", bls_dates("empsit"))):
+        for d in days:
+            if d < FIRST:
+                continue
+            # released while the market is closed (e.g. a jobs report on Good Friday) -> next session
+            reaction = sessions[sessions >= pd.Timestamp(d)][0].strftime("%Y-%m-%d")
+            rows.append({"type": kind, "release_day": d, "reaction_day": reaction})
+    m = pd.DataFrame(rows).sort_values("reaction_day").reset_index(drop=True)
+    # sanity checks: regular FOMC meetings are 8 a year, CPI and jobs reports about 12 a year
+    per_year = m.assign(y=m["release_day"].str[:4]).groupby(["type", "y"]).size().unstack(0)
+    full_years = per_year.loc[[y for y in per_year.index if FIRST[:4] < y < str(pd.Timestamp.now().year)]]
+    expected = pd.Series(8, index=full_years.index).where(full_years.index != "2020", 7)   # March 2020 was cancelled
+    assert full_years["fomc"].eq(expected).all(), f"FOMC meetings per year off:\n{full_years['fomc']}"
+    assert full_years[["cpi", "jobs"]].stack().between(11, 13).all(), f"CPI/jobs per year off:\n{full_years}"
+    return m
+
+
 def dividends():
     rows, yields = [], []
     for t in ALL_TICKERS:
@@ -156,6 +232,13 @@ if __name__ == "__main__":
     print("Unscheduled ('other') events:", e.loc[e["type"] == "other", ["ticker", "filed_ny"]].values.tolist())
     print("When filed:", e["when"].value_counts().to_dict())
     check_against_yahoo(e)
+
+    m = macro_events()
+    m.to_csv(OUT / "macro.csv", index=False)
+    print(f"\nEconomic announcements: {len(m)}")
+    print(m.assign(y=m["release_day"].str[:4]).groupby(["y", "type"]).size().unstack().to_string())
+    moved = m[m["release_day"] != m["reaction_day"]]
+    print("Released on a market holiday (moved to next session):", moved[["type", "release_day", "reaction_day"]].values.tolist())
 
     d = dividends()
     d.to_csv(OUT / "dividends.csv", index=False)
