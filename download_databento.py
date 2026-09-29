@@ -85,7 +85,9 @@ def retry(f, **kw):
     for attempt in range(5):
         try:
             return f(**kw)
-        except (db.BentoServerError, requests.exceptions.RequestException) as e:
+        except (db.BentoServerError, db.BentoClientError, requests.exceptions.RequestException) as e:
+            if isinstance(e, db.BentoClientError) and getattr(e, "http_status", None) != 429:
+                raise                                   # a real mistake in our request: don't retry
             print(f"  network/server error ({str(e)[:120]}), retrying...", flush=True)
             _local.__dict__.pop("client", None)          # fresh connection next time
             time.sleep(15 * (attempt + 1))
