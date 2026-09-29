@@ -15,7 +15,7 @@ and you get a price. Run fetch_events.py first to refresh earnings/dividends.
 Walk-forward test: train on older dates, test on the newest dates the model never saw.
 Two models are compared: a neural net and LightGBM (gradient-boosted trees).
 
-Run:  python train.py
+Run:  python train.py            (core tickers; add --all to include the extra group, --refresh to rebuild data)
 """
 from pathlib import Path
 
@@ -97,127 +97,156 @@ def add_events(q):
     return q.drop(columns=["day", "event_day"])
 
 
-# ---------- 3. Load quotes, clean them, back out IV ----------
-files = sorted((DATA / "databento" / "quotes").glob("*/*/*.parquet"))
-q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
-q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
-n0 = len(q)
-q["mid"] = (q["bid"] + q["ask"]) / 2
-q = q[(q["bid"] > 0) & (q["ask"] > q["bid"]) & (q["mid"] >= 0.05)
-      & ((q["ask"] - q["bid"]) / q["mid"] <= MAX_SPREAD)]
-print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({len(files)} days, {q['date'].min()} to {q['date'].max()})")
+def load_dataset(groups=("core",), refresh=False):
+    """All clean quotes with IV, ATM level and every model input, for these ticker groups
+    (see download_databento.py). Cached in models/dataset_<groups>.parquet; refresh=True rebuilds
+    it, e.g. after new data is downloaded."""
+    CACHE = Path(__file__).parent / "models" / f"dataset_{'_'.join(groups)}.parquet"
+    if CACHE.exists() and not refresh:
+        return pd.read_parquet(CACHE)
+    # ---------- 3. Load quotes, clean them, back out IV ----------
+    files = sorted(f for g in groups for f in (DATA / "databento" / "quotes" / g).glob("*/*.parquet"))
+    q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
+    n0 = len(q)
+    q["mid"] = (q["bid"] + q["ask"]) / 2
+    q = q[(q["bid"] > 0) & (q["ask"] > q["bid"]) & (q["mid"] >= 0.05)
+          & ((q["ask"] - q["bid"]) / q["mid"] <= MAX_SPREAD)]
+    print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({len(files)} days, {q['date'].min()} to {q['date'].max()})")
 
-q = add_events(q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date"))
-q["T"] = (pd.to_datetime(q["expiration"]) - pd.to_datetime(q["date"])).dt.days / 365
-q["moneyness"] = q["strike"] / q["spot"]
+    q = add_events(q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date"))
+    q["T"] = (pd.to_datetime(q["expiration"]) - pd.to_datetime(q["date"])).dt.days / 365
+    q["moneyness"] = q["strike"] / q["spot"]
 
-ivs = []
-for i in range(0, len(q), 1_000_000):             # in chunks to keep memory small
-    c = q.iloc[i:i + 1_000_000]
-    ivs.append(implied_vol_many(c["mid"], c["spot"], c["strike"], c["T"], c["tbill"].values, c["type"],
-                                q=c["div_yield"].values))
-q["iv"] = np.concatenate(ivs)
-q = q[q["iv"].between(0.02, 3)].dropna(subset=["rv63", "vix_prev"]).reset_index(drop=True)
-print(f"Usable options with an implied vol: {len(q):,}")
-
-
-# ---------- 4. Today's at-the-money (ATM) volatility, per stock and expiry ----------
-# From the closest OTM put (just below the stock price) and closest OTM call (just above),
-# interpolated to exactly the stock price. The model then learns the smile AROUND this level.
-q["log_m"] = np.log(q["moneyness"])
-g = ["date", "ticker", "expiration"]
-put_i = q[q["type"] == "put"].groupby(g)["log_m"].idxmax()     # closest put below the price
-call_i = q[q["type"] == "call"].groupby(g)["log_m"].idxmin()   # closest call above the price
-pair = pd.DataFrame({"p": put_i, "c": call_i}).dropna().astype(int)
-lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
-pair = pair[(lp > -0.05) & (lc < 0.05)]                         # both within 5% of the price
-lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
-w = -lp / (lc - lp)
-pair["atm_iv"] = (1 - w) * q.loc[pair["p"], "iv"].values + w * q.loc[pair["c"], "iv"].values
-# the two options each ATM value is built from are excluded when scoring (they'd be "answered" already)
-q["atm_used"] = q.index.isin(np.r_[pair["p"].values, pair["c"].values])
-q = q.merge(pair[["atm_iv"]].reset_index(), on=g)
-# the 30-day ATM level for the stock (interpolated across expiries): the overall mood that day
-def atm30(d):
-    d = d.sort_values("T")
-    return np.sqrt(np.interp(30 / 365, d["T"], d["atm_iv"] ** 2 * d["T"]) / (30 / 365))
-lvl = q.drop_duplicates(g).groupby(["date", "ticker"])[["T", "atm_iv"]].apply(atm30).rename("atm30").reset_index()
-q = q.merge(lvl, on=["date", "ticker"])
-q["x"] = q["log_m"] / (q["atm_iv"] * np.sqrt(q["T"]))          # moneyness in "standard deviations"
-q["iv_ratio"] = q["iv"] / q["atm_iv"]                          # what the model predicts
-print(f"Options with an ATM level for their expiry: {len(q):,}")
+    ivs = []
+    for i in range(0, len(q), 1_000_000):             # in chunks to keep memory small
+        c = q.iloc[i:i + 1_000_000]
+        ivs.append(implied_vol_many(c["mid"], c["spot"], c["strike"], c["T"], c["tbill"].values, c["type"],
+                                    q=c["div_yield"].values))
+    q["iv"] = np.concatenate(ivs)
+    q = q[q["iv"].between(0.02, 3)].dropna(subset=["rv63", "vix_prev"]).reset_index(drop=True)
+    print(f"Usable options with an implied vol: {len(q):,}")
 
 
-# ---------- 5. Walk-forward split ----------
-dates = np.sort(q["date"].unique())
-cutoff = dates[int(len(dates) * (1 - TEST_SHARE))]
-train, test = q[q["date"] < cutoff], q[q["date"] >= cutoff].copy()
-print(f"Train: {len(train):,} options before {cutoff}   Test: {len(test):,} options from {cutoff}\n")
+    # ---------- 4. Today's at-the-money (ATM) volatility, per stock and expiry ----------
+    # From the closest OTM put (just below the stock price) and closest OTM call (just above),
+    # interpolated to exactly the stock price. The model then learns the smile AROUND this level.
+    q["log_m"] = np.log(q["moneyness"])
+    g = ["date", "ticker", "expiration"]
+    put_i = q[q["type"] == "put"].groupby(g)["log_m"].idxmax()     # closest put below the price
+    call_i = q[q["type"] == "call"].groupby(g)["log_m"].idxmin()   # closest call above the price
+    pair = pd.DataFrame({"p": put_i, "c": call_i}).dropna().astype(int)
+    lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
+    pair = pair[(lp > -0.05) & (lc < 0.05)]                         # both within 5% of the price
+    lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
+    w = -lp / (lc - lp)
+    pair["atm_iv"] = (1 - w) * q.loc[pair["p"], "iv"].values + w * q.loc[pair["c"], "iv"].values
+    # the two options each ATM value is built from are excluded when scoring (they'd be "answered" already)
+    q["atm_used"] = q.index.isin(np.r_[pair["p"].values, pair["c"].values])
+    q = q.merge(pair[["atm_iv"]].reset_index(), on=g)
+    # the 30-day ATM level for the stock (interpolated across expiries): the overall mood that day
+    def atm30(d):
+        d = d.sort_values("T")
+        return np.sqrt(np.interp(30 / 365, d["T"], d["atm_iv"] ** 2 * d["T"]) / (30 / 365))
+    lvl = q.drop_duplicates(g).groupby(["date", "ticker"])[["T", "atm_iv"]].apply(atm30).rename("atm30").reset_index()
+    q = q.merge(lvl, on=["date", "ticker"])
+    q["x"] = q["log_m"] / (q["atm_iv"] * np.sqrt(q["T"]))          # moneyness in "standard deviations"
+    q["iv_ratio"] = q["iv"] / q["atm_iv"]                          # what the model predicts
+    print(f"Options with an ATM level for their expiry: {len(q):,}")
 
-TICKERS = sorted(q["ticker"].unique())
+
+    q = q.reset_index(drop=True)
+    CACHE.parent.mkdir(exist_ok=True)
+    q.to_parquet(CACHE, index=False)
+    return q
+
 NUMERIC = ["x", "log_m", "sqrt_T", "atm_iv", "atm30", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
            "days_to_event", "event_before_expiry",
            "days_to_fomc", "fomc_before_expiry", "days_to_cpi", "cpi_before_expiry", "days_to_jobs", "jobs_before_expiry"]
-FEATURES = NUMERIC + [f"is_{t}" for t in TICKERS]
 
-def features(d):
+
+def feature_names(tickers):
+    return NUMERIC + [f"is_{t}" for t in tickers]
+
+
+def features(d, tickers):
     X = d.assign(sqrt_T=np.sqrt(d["T"]))[NUMERIC].copy()
-    for t in TICKERS:
+    for t in tickers:
         X[f"is_{t}"] = (d["ticker"] == t).astype(float)
-    return X[FEATURES]
+    return X[feature_names(tickers)]
 
 
-# ---------- 6. Train both models (they predict IV / ATM IV: the smile shape) ----------
-models = {}
-sample = train.sample(min(len(train), NN_MAX_ROWS), random_state=0)
-models["neural net"] = make_pipeline(StandardScaler(), MLPRegressor(
-    hidden_layer_sizes=(64, 64), alpha=1e-3, max_iter=200, early_stopping=True, random_state=0)
-).fit(features(sample), sample["iv_ratio"])
-models["LightGBM"] = lgb.LGBMRegressor(n_estimators=600, learning_rate=0.05, num_leaves=63,
-                                       min_child_samples=200, subsample=0.8, subsample_freq=1,
-                                       colsample_bytree=0.9, verbose=-1, random_state=0
-                                       ).fit(features(train), train["iv_ratio"])
+def lgbm():
+    return lgb.LGBMRegressor(n_estimators=600, learning_rate=0.05, num_leaves=63, min_child_samples=200,
+                             subsample=0.8, subsample_freq=1, colsample_bytree=0.9, verbose=-1, random_state=0)
 
-
-# ---------- 7. Test on unseen dates (not counting the options used for the ATM level) ----------
-score_set = test[~test["atm_used"]]
 
 def price_of(d, iv):
     return bs_price(d["type"].values, d["spot"], d["strike"], d["T"], d["tbill"].values, iv, d["div_yield"].values)
 
-def score(d, iv_pred):
-    price = price_of(d, iv_pred)
-    return {"IV error": np.median(np.abs(iv_pred - d["iv"])),
-            "price error": np.median(np.abs(price - d["mid"]) / d["mid"]),
-            "inside bid/ask": np.mean((price >= d["bid"]) & (price <= d["ask"]))}
 
-def predict(m, d):
-    return np.clip(m.predict(features(d)) * d["atm_iv"].values, 0.02, 3)
+def predict(m, d, tickers):
+    return np.clip(m.predict(features(d, tickers)) * d["atm_iv"].values, 0.02, 3)
 
-results = {"baseline: Black-Scholes, 21-day vol": score(score_set, score_set["rv21"].values),
-           "baseline: flat smile (ATM vol everywhere)": score(score_set, score_set["atm_iv"].values)}
-for name, m in models.items():
-    results[name] = score(score_set, predict(m, score_set))
-table = pd.DataFrame(results).T
-print("Results on unseen dates (median errors; 'inside bid/ask' = share of prices a trader could actually deal at):")
-print(table.to_string(formatters={c: "{:.1%}".format for c in table.columns}))
 
-best = min(models, key=lambda k: results[k]["price error"])
-test["iv_pred"] = predict(models[best], test)
-test["price_pred"] = price_of(test, test["iv_pred"])
-s = test[~test["atm_used"]]
-by = s.groupby("ticker").apply(lambda d: pd.Series({
-    "options": len(d),
-    "IV error": np.median(np.abs(d["iv_pred"] - d["iv"])),
-    "price error": np.median(np.abs(d["price_pred"] - d["mid"]) / d["mid"]),
-    "inside bid/ask": np.mean((d["price_pred"] >= d["bid"]) & (d["price_pred"] <= d["ask"]))}), include_groups=False)
-print(f"\nBest model: {best}. Per ticker:")
-print(by.to_string(formatters={"options": "{:,.0f}".format, **{c: "{:.1%}".format for c in by.columns[1:]}}))
+if __name__ == "__main__":
+    import sys
+    groups = ("core", "extra") if "--all" in sys.argv else ("core",)
+    q = load_dataset(groups, refresh="--refresh" in sys.argv)
+    print(f"Dataset: {len(q):,} options, {q['date'].nunique():,} days ({q['date'].min()} to {q['date'].max()}), "
+          f"tickers: {', '.join(sorted(q['ticker'].unique()))}")
 
-MODEL_PATH.parent.mkdir(exist_ok=True)
-joblib.dump({"model": models[best], "name": best, "features": FEATURES, "tickers": TICKERS, "trained_until": cutoff},
-            MODEL_PATH)
-# test-period predictions, for backtest.py
-test[["date", "ticker", "type", "strike", "expiration", "spot", "bid", "ask", "mid", "T", "tbill", "div_yield",
-      "iv", "iv_pred", "atm_iv", "atm_used"]].to_parquet(MODEL_PATH.with_name("test_predictions.parquet"), index=False)
-print(f"\nSaved {best} to {MODEL_PATH} (and its test-period predictions for backtesting)")
+    # ---------- 5. Walk-forward split ----------
+    dates = np.sort(q["date"].unique())
+    cutoff = dates[int(len(dates) * (1 - TEST_SHARE))]
+    train, test = q[q["date"] < cutoff], q[q["date"] >= cutoff].copy()
+    print(f"Train: {len(train):,} options before {cutoff}   Test: {len(test):,} options from {cutoff}\n")
+    TICKERS = sorted(q["ticker"].unique())
+    FEATURES = feature_names(TICKERS)
+
+
+    # ---------- 6. Train both models (they predict IV / ATM IV: the smile shape) ----------
+    models = {}
+    sample = train.sample(min(len(train), NN_MAX_ROWS), random_state=0)
+    models["neural net"] = make_pipeline(StandardScaler(), MLPRegressor(
+        hidden_layer_sizes=(64, 64), alpha=1e-3, max_iter=200, early_stopping=True, random_state=0)
+    ).fit(features(sample, TICKERS), sample["iv_ratio"])
+    models["LightGBM"] = lgbm().fit(features(train, TICKERS), train["iv_ratio"])
+
+
+    # ---------- 7. Test on unseen dates (not counting the options used for the ATM level) ----------
+    score_set = test[~test["atm_used"]]
+
+    def score(d, iv_pred):
+        price = price_of(d, iv_pred)
+        return {"IV error": np.median(np.abs(iv_pred - d["iv"])),
+                "price error": np.median(np.abs(price - d["mid"]) / d["mid"]),
+                "inside bid/ask": np.mean((price >= d["bid"]) & (price <= d["ask"]))}
+
+    results = {"baseline: Black-Scholes, 21-day vol": score(score_set, score_set["rv21"].values),
+               "baseline: flat smile (ATM vol everywhere)": score(score_set, score_set["atm_iv"].values)}
+    for name, m in models.items():
+        results[name] = score(score_set, predict(m, score_set, TICKERS))
+    table = pd.DataFrame(results).T
+    print("Results on unseen dates (median errors; 'inside bid/ask' = share of prices a trader could actually deal at):")
+    print(table.to_string(formatters={c: "{:.1%}".format for c in table.columns}))
+
+    best = min(models, key=lambda k: results[k]["price error"])
+    test["iv_pred"] = predict(models[best], test, TICKERS)
+    test["price_pred"] = price_of(test, test["iv_pred"])
+    s = test[~test["atm_used"]]
+    by = s.groupby("ticker").apply(lambda d: pd.Series({
+        "options": len(d),
+        "IV error": np.median(np.abs(d["iv_pred"] - d["iv"])),
+        "price error": np.median(np.abs(d["price_pred"] - d["mid"]) / d["mid"]),
+        "inside bid/ask": np.mean((d["price_pred"] >= d["bid"]) & (d["price_pred"] <= d["ask"]))}), include_groups=False)
+    print(f"\nBest model: {best}. Per ticker:")
+    print(by.to_string(formatters={"options": "{:,.0f}".format, **{c: "{:.1%}".format for c in by.columns[1:]}}))
+
+    MODEL_PATH.parent.mkdir(exist_ok=True)
+    joblib.dump({"model": models[best], "name": best, "features": FEATURES, "tickers": TICKERS, "trained_until": cutoff},
+                MODEL_PATH)
+    # test-period predictions, for backtest.py
+    test[["date", "ticker", "type", "strike", "expiration", "spot", "bid", "ask", "mid", "T", "tbill", "div_yield",
+          "iv", "iv_pred", "atm_iv", "atm_used"]].to_parquet(MODEL_PATH.with_name("test_predictions.parquet"), index=False)
+    print(f"\nSaved {best} to {MODEL_PATH} (and its test-period predictions for backtesting)")
