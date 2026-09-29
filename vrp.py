@@ -8,7 +8,7 @@ and can we tell WHEN they're too expensive (or too cheap)?
    (inputs: recent realized vols, the implied vol itself, VIX, upcoming earnings/Fed/CPI/jobs).
    signal = log(implied vol) - log(forecast)   (> 0: options look expensive)
 3. Trade the two options closest to the stock price (the OTM put just below and the OTM call
-   just above, ~30 days to expiry): SELL both when the signal is high, BUY both when it's low.
+   just above; 2-week, monthly or quarterly expiries; held 1 to 20 days): SELL both when the signal is high, BUY both when it's low.
    Delta-hedged daily, real bid/ask both ways, trades crossing a stock split skipped.
 4. Rules are chosen on 2016-2021 and checked ONCE on 2022-today.
 
@@ -25,7 +25,10 @@ import train as tr
 
 H_RV = 21                        # realized vol measured over the next 21 trading days
 SELECT_YEARS = range(2016, 2022)
-GRID = {"side": ["sell", "buy"], "threshold": [0.0, 0.1, 0.2], "hold": [5, 10, 20]}
+GRID = {"side": ["sell", "buy"], "threshold": [0.0, 0.1, 0.2], "hold": [1, 2, 3, 5, 10, 20],
+        "expiry": ["2 weeks", "month", "quarter"]}
+# which options to trade: (min, max, target) days to expiry
+EXPIRY = {"2 weeks": (12, 18, 14), "month": (20, 45, 30), "quarter": (60, 100, 75)}
 
 # ---------- 1. daily table per ticker: implied vs realized ----------
 cols = ["date", "ticker", "type", "strike", "expiration", "spot", "bid", "ask", "mid", "T", "tbill", "div_yield",
@@ -76,26 +79,31 @@ err_rv = np.median(np.abs(chk["rv21"] - chk["rv_fwd"]))
 print(f"\nForecast of next-21-day realized vol, 2016-today (median error, vol points): model {err_model * 100:.1f}, "
       f"implied vol itself {err_iv * 100:.1f}, last 21 days' realized {err_rv * 100:.1f}")
 
-# ---------- 3. trade the near-the-money pair (~30 days to expiry) ----------
-legs = q[q["atm_used"]].copy()
-dte = (pd.to_datetime(legs["expiration"]) - pd.to_datetime(legs["date"])).dt.days
-legs = legs[dte.between(20, 45)]
-# one expiry per ticker and day: the one closest to 30 days
-legs["dist"] = (dte[legs.index] - 30).abs()
-best = legs.groupby(["date", "ticker"])["dist"].transform("min")
-legs = legs[legs["dist"] == best].merge(day[["date", "ticker", "signal"]], on=["date", "ticker"])
-legs = legs.dropna(subset=["signal"])
-legs["delta"] = ss.delta(legs)
-legs["day_no"] = legs["date"].map(ss.day_no)
-legs = legs.dropna(subset=["day_no"]).astype({"day_no": int})
+# ---------- 3. trade the near-the-money pair, for several expiries ----------
+atm = q[q["atm_used"]].copy()
+atm["dte"] = (pd.to_datetime(atm["expiration"]) - pd.to_datetime(atm["date"])).dt.days
+leg_sets = {}
+for name, (lo, hi, target) in EXPIRY.items():
+    legs = atm[atm["dte"].between(lo, hi)].copy()
+    # one expiry per ticker and day: the one closest to the target
+    legs["dist"] = (legs["dte"] - target).abs()
+    legs = legs[legs["dist"] == legs.groupby(["date", "ticker"])["dist"].transform("min")]
+    legs = legs.merge(day[["date", "ticker", "signal"]], on=["date", "ticker"]).dropna(subset=["signal"])
+    legs["delta"] = ss.delta(legs)
+    legs["day_no"] = legs["date"].map(ss.day_no)
+    leg_sets[name] = legs.dropna(subset=["day_no"]).astype({"day_no": int})
+del atm
 
 configs = [dict(zip(GRID, v)) for v in itertools.product(*GRID.values())]
 trades = {i: [] for i in range(len(configs))}
-for year in sorted(legs["date"].str[:4].unique()):
-    ly = legs[legs["date"].str[:4] == year]
-    first, last = ss.day_no[ly["date"].min()], min(ss.day_no[ly["date"].max()] + max(GRID["hold"]), len(ss.all_days) - 1)
+years = sorted(leg_sets["month"]["date"].str[:4].unique())
+for year in years:
+    days = pd.concat([l.loc[l["date"].str[:4] == year, "date"] for l in leg_sets.values()])
+    first, last = ss.day_no[days.min()], min(ss.day_no[days.max()] + max(GRID["hold"]), len(ss.all_days) - 1)
     panel = ss.panel_for(ss.all_days[first:last + 1])
     for i, c in enumerate(configs):
+        ly = leg_sets[c["expiry"]]
+        ly = ly[ly["date"].str[:4] == year]
         sel = ly[ly["signal"] > c["threshold"]] if c["side"] == "sell" else ly[ly["signal"] < -c["threshold"]]
         t = ss.trade_pnl(sel, c["hold"], panel, c["side"])
         # both legs together = one trade per ticker per day
@@ -111,13 +119,14 @@ for i, c in enumerate(configs):
 res = pd.DataFrame(rows)
 show = res.drop(columns="_t").sort_values("select t (overlap-corrected)", ascending=False)
 print("\nRules on the SELECTION years 2016-2021 (one trade = the put+call pair, $ per pair):")
-print(show.to_string(index=False, float_format=lambda x: f"{x:,.2f}"))
+print(f"{len(configs)} rules tried -- with this many, a selection t below ~2.5 is likely luck.")
+print(show.head(20).to_string(index=False, float_format=lambda x: f"{x:,.2f}"))
 
 best = res.loc[show.index[0]]
 t = best["_t"]
 conf = t[~t["date"].str[:4].astype(int).isin(SELECT_YEARS)]
 s2 = ss.stats(conf, best["hold"])
-print(f"\nChosen: {best['side']} when signal {'>' if best['side'] == 'sell' else '<'} "
+print(f"\nChosen: {best['side']} {best['expiry']} options when signal {'>' if best['side'] == 'sell' else '<'} "
       f"{'' if best['side'] == 'sell' else '-'}{best['threshold']}, hold {best['hold']} days")
 print(f"CONFIRMATION 2022-today (checked once): {s2['trades']:,} trades, ${s2.get('$/trade', np.nan):,.2f}/trade, "
       f"{s2.get('% days +', np.nan):.0%} of days profitable, t = {s2.get('t (overlap-corrected)', np.nan):.1f}, "

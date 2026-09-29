@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]
+TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "GOOGL", "AMD", "GLD", "TLT", "XLF"]
 STRIKE_RANGE = 0.30     # keep strikes within +-30% of the stock price
 MAX_DAYS = 400          # keep expirations up to ~13 months out
 OUT = Path(__file__).parent / "data" / "yahoo"
