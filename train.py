@@ -2,6 +2,8 @@
 Train the option pricing model on Databento's closing bid/ask quotes (data/databento/).
 
 The model predicts each option's implied volatility (IV) from things known at the close:
+  - today's at-the-money (ATM) IV for that stock and expiry, measured from the two options
+    closest to the stock price -- the model learns the smile AROUND this level
   - the option: how far the strike is from the stock price, time to expiry
   - the stock: how much it has been moving lately (5/21/63 days), recent returns
   - the market: yesterday's VIX ("fear gauge"), and which ticker it is
@@ -110,65 +112,102 @@ q = q[q["iv"].between(0.02, 3)].dropna(subset=["rv63", "vix_prev"]).reset_index(
 print(f"Usable options with an implied vol: {len(q):,}")
 
 
-# ---------- 4. Walk-forward split ----------
+# ---------- 4. Today's at-the-money (ATM) volatility, per stock and expiry ----------
+# From the closest OTM put (just below the stock price) and closest OTM call (just above),
+# interpolated to exactly the stock price. The model then learns the smile AROUND this level.
+q["log_m"] = np.log(q["moneyness"])
+g = ["date", "ticker", "expiration"]
+put_i = q[q["type"] == "put"].groupby(g)["log_m"].idxmax()     # closest put below the price
+call_i = q[q["type"] == "call"].groupby(g)["log_m"].idxmin()   # closest call above the price
+pair = pd.DataFrame({"p": put_i, "c": call_i}).dropna().astype(int)
+lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
+pair = pair[(lp > -0.05) & (lc < 0.05)]                         # both within 5% of the price
+lp, lc = q.loc[pair["p"], "log_m"].values, q.loc[pair["c"], "log_m"].values
+w = -lp / (lc - lp)
+pair["atm_iv"] = (1 - w) * q.loc[pair["p"], "iv"].values + w * q.loc[pair["c"], "iv"].values
+# the two options each ATM value is built from are excluded when scoring (they'd be "answered" already)
+q["atm_used"] = q.index.isin(np.r_[pair["p"].values, pair["c"].values])
+q = q.merge(pair[["atm_iv"]].reset_index(), on=g)
+# the 30-day ATM level for the stock (interpolated across expiries): the overall mood that day
+def atm30(d):
+    d = d.sort_values("T")
+    return np.sqrt(np.interp(30 / 365, d["T"], d["atm_iv"] ** 2 * d["T"]) / (30 / 365))
+lvl = q.drop_duplicates(g).groupby(["date", "ticker"])[["T", "atm_iv"]].apply(atm30).rename("atm30").reset_index()
+q = q.merge(lvl, on=["date", "ticker"])
+q["x"] = q["log_m"] / (q["atm_iv"] * np.sqrt(q["T"]))          # moneyness in "standard deviations"
+q["iv_ratio"] = q["iv"] / q["atm_iv"]                          # what the model predicts
+print(f"Options with an ATM level for their expiry: {len(q):,}")
+
+
+# ---------- 5. Walk-forward split ----------
 dates = np.sort(q["date"].unique())
 cutoff = dates[int(len(dates) * (1 - TEST_SHARE))]
 train, test = q[q["date"] < cutoff], q[q["date"] >= cutoff].copy()
 print(f"Train: {len(train):,} options before {cutoff}   Test: {len(test):,} options from {cutoff}\n")
 
 TICKERS = sorted(q["ticker"].unique())
-FEATURES = (["log_m", "sqrt_T", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
-             "days_to_event", "event_before_expiry"] + [f"is_{t}" for t in TICKERS])
+NUMERIC = ["x", "log_m", "sqrt_T", "atm_iv", "atm30", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
+           "days_to_event", "event_before_expiry"]
+FEATURES = NUMERIC + [f"is_{t}" for t in TICKERS]
 
 def features(d):
-    X = pd.DataFrame({"log_m": np.log(d["moneyness"]), "sqrt_T": np.sqrt(d["T"])}, index=d.index)
-    for col in ["rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev", "days_to_event", "event_before_expiry"]:
-        X[col] = d[col]
+    X = d.assign(sqrt_T=np.sqrt(d["T"]))[NUMERIC].copy()
     for t in TICKERS:
         X[f"is_{t}"] = (d["ticker"] == t).astype(float)
     return X[FEATURES]
 
 
-# ---------- 5. Train both models ----------
+# ---------- 6. Train both models (they predict IV / ATM IV: the smile shape) ----------
 models = {}
 sample = train.sample(min(len(train), NN_MAX_ROWS), random_state=0)
 models["neural net"] = make_pipeline(StandardScaler(), MLPRegressor(
     hidden_layer_sizes=(64, 64), alpha=1e-3, max_iter=200, early_stopping=True, random_state=0)
-).fit(features(sample), sample["iv"])
+).fit(features(sample), sample["iv_ratio"])
 models["LightGBM"] = lgb.LGBMRegressor(n_estimators=600, learning_rate=0.05, num_leaves=63,
                                        min_child_samples=200, subsample=0.8, subsample_freq=1,
                                        colsample_bytree=0.9, verbose=-1, random_state=0
-                                       ).fit(features(train), train["iv"])
+                                       ).fit(features(train), train["iv_ratio"])
 
 
-# ---------- 6. Test on unseen dates ----------
-def score(iv_pred):
-    price = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values, iv_pred,
-                     test["div_yield"].values)
-    return {"IV error": np.median(np.abs(iv_pred - test["iv"])),
-            "price error": np.median(np.abs(price - test["mid"]) / test["mid"]),
-            "inside bid/ask": np.mean((price >= test["bid"]) & (price <= test["ask"]))}
+# ---------- 7. Test on unseen dates (not counting the options used for the ATM level) ----------
+score_set = test[~test["atm_used"]]
 
-results = {"baseline (Black-Scholes, 21-day vol)": score(test["rv21"].values)}
+def price_of(d, iv):
+    return bs_price(d["type"].values, d["spot"], d["strike"], d["T"], d["tbill"].values, iv, d["div_yield"].values)
+
+def score(d, iv_pred):
+    price = price_of(d, iv_pred)
+    return {"IV error": np.median(np.abs(iv_pred - d["iv"])),
+            "price error": np.median(np.abs(price - d["mid"]) / d["mid"]),
+            "inside bid/ask": np.mean((price >= d["bid"]) & (price <= d["ask"]))}
+
+def predict(m, d):
+    return np.clip(m.predict(features(d)) * d["atm_iv"].values, 0.02, 3)
+
+results = {"baseline: Black-Scholes, 21-day vol": score(score_set, score_set["rv21"].values),
+           "baseline: flat smile (ATM vol everywhere)": score(score_set, score_set["atm_iv"].values)}
 for name, m in models.items():
-    results[name] = score(np.clip(m.predict(features(test)), 0.02, 3))
+    results[name] = score(score_set, predict(m, score_set))
 table = pd.DataFrame(results).T
 print("Results on unseen dates (median errors; 'inside bid/ask' = share of prices a trader could actually deal at):")
 print(table.to_string(formatters={c: "{:.1%}".format for c in table.columns}))
 
 best = min(models, key=lambda k: results[k]["price error"])
-test["iv_pred"] = np.clip(models[best].predict(features(test)), 0.02, 3)
-test["price_pred"] = bs_price(test["type"].values, test["spot"], test["strike"], test["T"], test["tbill"].values,
-                              test["iv_pred"], test["div_yield"].values)
-by = test.groupby("ticker").apply(lambda g: pd.Series({
-    "options": len(g),
-    "IV error": np.median(np.abs(g["iv_pred"] - g["iv"])),
-    "price error": np.median(np.abs(g["price_pred"] - g["mid"]) / g["mid"]),
-    "inside bid/ask": np.mean((g["price_pred"] >= g["bid"]) & (g["price_pred"] <= g["ask"]))}), include_groups=False)
+test["iv_pred"] = predict(models[best], test)
+test["price_pred"] = price_of(test, test["iv_pred"])
+s = test[~test["atm_used"]]
+by = s.groupby("ticker").apply(lambda d: pd.Series({
+    "options": len(d),
+    "IV error": np.median(np.abs(d["iv_pred"] - d["iv"])),
+    "price error": np.median(np.abs(d["price_pred"] - d["mid"]) / d["mid"]),
+    "inside bid/ask": np.mean((d["price_pred"] >= d["bid"]) & (d["price_pred"] <= d["ask"]))}), include_groups=False)
 print(f"\nBest model: {best}. Per ticker:")
 print(by.to_string(formatters={"options": "{:,.0f}".format, **{c: "{:.1%}".format for c in by.columns[1:]}}))
 
 MODEL_PATH.parent.mkdir(exist_ok=True)
 joblib.dump({"model": models[best], "name": best, "features": FEATURES, "tickers": TICKERS, "trained_until": cutoff},
             MODEL_PATH)
-print(f"\nSaved {best} to {MODEL_PATH}")
+# test-period predictions, for backtest.py
+test[["date", "ticker", "type", "strike", "expiration", "spot", "bid", "ask", "mid", "T", "tbill", "div_yield",
+      "iv", "iv_pred", "atm_iv", "atm_used"]].to_parquet(MODEL_PATH.with_name("test_predictions.parquet"), index=False)
+print(f"\nSaved {best} to {MODEL_PATH} (and its test-period predictions for backtesting)")
