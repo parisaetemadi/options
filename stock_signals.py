@@ -15,7 +15,7 @@ Portfolio: each day, go long the tickers with the highest forecast and short the
 sum to zero, so a rising market alone doesn't make money), hold h days, pay 0.02% per unit traded.
 Rules are picked on 2014-2021 and checked once on 2022-today.
 
-Run:  python stock_signals.py [--no-tickers]
+Run:  python stock_signals.py [--no-tickers] [--all]   (--all: all 14 tickers; needs models/dataset_extra.parquet)
 """
 import sys
 
@@ -31,9 +31,10 @@ COST = 0.0002                 # per unit of stock traded (bid/ask + fees, conser
 SIG = ["put_skew", "call_skew", "vrp", "term", "d_put_skew", "d_atm"]
 
 # ---------- signals from the option smile ----------
-q = pd.read_parquet(tr.Path(tr.__file__).parent / "models" / "dataset_core.parquet",
-                    columns=["date", "ticker", "type", "expiration", "T", "x", "iv", "atm_iv", "atm30", "rv21"])
-q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
+GROUPS = ["core", "extra"] if "--all" in sys.argv else ["core"]     # --all: all 14 tickers
+q = pd.concat([pd.read_parquet(tr.Path(tr.__file__).parent / "models" / f"dataset_{g}.parquet",
+                               columns=["date", "ticker", "type", "expiration", "T", "x", "iv", "atm_iv", "atm30", "rv21"])
+               .astype({"date": str, "ticker": str, "type": str, "expiration": str}) for g in GROUPS], ignore_index=True)
 dte = q["T"] * 365
 near = q[dte.between(20, 45)]
 near = near[(near["T"] - 30 / 365).abs() == near.groupby(["date", "ticker"])["T"].transform(lambda t: (t - 30 / 365).abs().min())]
