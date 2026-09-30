@@ -51,8 +51,8 @@ BUDGET = 120.0                # hard stop (free credit is $125; keep a $5 buffer
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
 STRIKE_RANGE = 0.20
 MIN_DAYS, MAX_DAYS = 7, 365
-CHUNK = 2000                  # Databento allows up to 2,000 symbols per request
-DAYS_AT_ONCE = 12             # download several days in parallel
+CHUNK = 500                   # symbols per request (max 2,000; big requests time out at the gateway -- 504s)
+DAYS_AT_ONCE = 8              # download several days in parallel
 OUT = Path(__file__).parent / "data" / "databento"
 
 
@@ -148,8 +148,19 @@ def root(ticker, day):
 def buy_definitions(tickers, day, nxt, what):
     """Contract list for these tickers on this day, standard contracts only, with our ticker names."""
     roots = {root(t, day): t for t in tickers}
-    d = get("definition", [f"{r}.OPT" for r in roots], "parent", day, nxt, what)
-    d = d.drop_duplicates("raw_symbol")
+    # one request per ticker: many tickers in one request exceed Databento's 60-second gateway limit (504)
+    def one(r):
+        try:
+            return get("definition", [f"{r}.OPT"], "parent", day, nxt, f"{what} {r}")
+        except db.BentoClientError as e:                  # not listed yet on that day (e.g. PYPL before 2015)
+            if "symbology" not in str(e):
+                raise
+            return pd.DataFrame()
+    with ThreadPoolExecutor(5) as pool:
+        parts = [p for p in pool.map(one, roots) if len(p)]
+    if not parts:
+        return pd.DataFrame(columns=["raw_symbol", "ticker", "type", "strike", "expiration"])
+    d = pd.concat(parts).drop_duplicates("raw_symbol")
     d = pd.DataFrame({"raw_symbol": d["raw_symbol"].values,
                       "ticker": d["underlying"].values,
                       "type": np.where(d["instrument_class"].values == "C", "call", "put"),
