@@ -61,6 +61,10 @@ def main(group):
         # download_day writes the day file (and a quality row) for just these tickers...
         fixed_qc = dd.download_day(day, pd.Timestamp(sched.loc[day, "market_close"]), defs, spot)
         fixed = pd.read_parquet(fixed_path).astype({"ticker": str})
+        if fixed.empty:                           # still nothing for these tickers: keep the day as it was
+            backup.to_parquet(fixed_path, index=False, compression="zstd")
+            print(f"{day}: {bad} have no quotes that day even with a fresh contract list -- left as is")
+            continue
         # ...so put the good tickers back in
         merged = pd.concat([backup[~backup["ticker"].isin(bad)], fixed], ignore_index=True)
         for col in ("date", "ticker", "type", "expiration"):

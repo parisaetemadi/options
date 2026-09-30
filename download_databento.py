@@ -163,7 +163,12 @@ def _definitions(day):
 
 
 # ---------- turn Databento's raw rows into our clean table ----------
+COLS = ["date", "ticker", "type", "strike", "expiration", "spot",
+        "bid", "ask", "bid_size", "ask_size", "last", "last_trade_age_s"]
+
 def tidy(day, want, q, end):
+    if q.empty:                                   # no quotes at all in that minute (e.g. a few tiny contracts)
+        return pd.DataFrame(columns=COLS)
     q = q.reset_index().drop_duplicates("symbol", keep="last")
     # seconds between the last trade and the snapshot (blank = no trade that day)
     age = (end - q["ts_event"]).dt.total_seconds()
@@ -173,8 +178,7 @@ def tidy(day, want, q, end):
                                    "last": q["price"].values,
                                    "last_trade_age_s": age.round().astype("Int32").values}),
                      on="raw_symbol")
-    return out.assign(date=day)[["date", "ticker", "type", "strike", "expiration", "spot",
-                                 "bid", "ask", "bid_size", "ask_size", "last", "last_trade_age_s"]]
+    return out.assign(date=day)[COLS]
 
 
 # ---------- one trading day ----------
