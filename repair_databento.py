@@ -16,7 +16,8 @@ import pandas_market_calendars as mcal
 
 import download_databento as dd
 
-MIN_LIVE = 0.8      # a ticker is "broken" on a day if under 80% of its quotes are live...
+MIN_LIVE = 0.8      # a ticker is "broken" on a day if under 80% of its quotes are live AND that's a sudden
+LIVE_DROP = 0.3     #   drop (30+ points below the previous day -- cheap options often have no bid, that's real)...
 MIN_SHARE = 0.5     # ...or it has under half the contracts it had the previous trading day
 
 
@@ -25,7 +26,8 @@ def broken_tickers(day, prev):
     live = ((q["bid"] > 0) & (q["ask"] > 0)).groupby(q["ticker"]).mean()
     count = q.groupby("ticker").size()
     prev_count = prev.groupby("ticker").size() if prev is not None else count
-    bad = set(live[live < MIN_LIVE].index)
+    prev_live = ((prev["bid"] > 0) & (prev["ask"] > 0)).groupby(prev["ticker"]).mean() if prev is not None else live
+    bad = {t for t in live[live < MIN_LIVE].index if live[t] < prev_live.get(t, 1.0) - LIVE_DROP}
     bad |= {t for t in dd.TICKERS if count.get(t, 0) < MIN_SHARE * prev_count.get(t, 0)}
     return sorted(bad), q
 
