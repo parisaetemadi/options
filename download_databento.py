@@ -40,6 +40,7 @@ TICKERS = GROUPS["core"]                     # set by --group
 GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
+LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
 BUDGET = 123.0                # hard stop (free credit is $125; keep a $2 buffer)
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
 STRIKE_RANGE = 0.20
@@ -259,7 +260,7 @@ def main(max_days, group):
     closes = stock_closes()
 
     yesterday = (pd.Timestamp.now(tz="America/New_York") - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    sched = mcal.get_calendar("NYSE").schedule(start_date=FIRST_DAY, end_date=yesterday)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=FIRST_DAY, end_date=min(yesterday, LAST_DAY))
     sched["day"] = sched.index.strftime("%Y-%m-%d")
     sched["week"] = sched.index.to_period("W").astype(str)
     first_of_week = sched.groupby("week")["day"].transform("min")
