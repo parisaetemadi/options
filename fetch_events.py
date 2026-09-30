@@ -33,7 +33,15 @@ import yfinance as yf
 OUT = Path(__file__).parent / "data" / "events"
 # SEC CIK numbers (a company can have two: Google Inc. before 2015, Alphabet after)
 STOCKS = {"AAPL": [320193], "MSFT": [789019], "NVDA": [1045810], "AMZN": [1018724], "TSLA": [1318605],
-          "META": [1326801], "GOOGL": [1652044, 1288776], "AMD": [2488], "XOM": [34088]}
+          "META": [1326801], "GOOGL": [1652044, 1288776], "AMD": [2488], "XOM": [34088],
+          # the 'wide' group (download_databento.py); predecessor companies' CIKs listed too.
+          # NOK, TSM, BABA are foreign issuers: no 8-Ks, so no SEC earnings dates (Yahoo's upcoming only)
+          "INTC": [50863], "MU": [723125], "NFLX": [1065280], "ORCL": [1341439],
+          "AVGO": [1730168, 1649338, 1441634], "NOK": [924613], "TSM": [1046179], "NOW": [1373715],
+          "BAC": [70858], "WMT": [104169], "NKE": [320187], "F": [37996], "PFE": [78003], "AAL": [6201],
+          "UNH": [731766], "QCOM": [804328], "CRM": [1108524], "BA": [12927], "T": [732717],
+          "MRVL": [1835632, 1058057], "PYPL": [1633917], "BABA": [1577552], "GME": [1326380],
+          "MSTR": [1050446], "SMCI": [1375365]}
 ALL_TICKERS = ["SPY", "QQQ", "IWM", "GLD", "TLT", "XLF", *STOCKS]
 SEC_HEADERS = {"User-Agent": "options-research et1378parisa@gmail.com"}   # SEC asks for a contact
 FIRST = "2013-01-01"
@@ -221,11 +229,15 @@ def dividends():
         d = h.loc[h["Dividends"] > 0, "Dividends"]
         rows += [{"ticker": t, "ex_date": i.strftime("%Y-%m-%d"), "amount": round(v, 6)}
                  for i, v in d.items() if i >= pd.Timestamp(FIRST)]
-        trailing = h["Dividends"].rolling("365D").sum()
+        # 350 days, not 365: quarterly payers' ex-dates drift, and a 365-day window sometimes holds 5 payments
+        trailing = h["Dividends"].rolling("350D").sum()
         y = (trailing / h["Close"]).loc[FIRST:]
         yields.append(pd.DataFrame({"ticker": t, "date": y.index.strftime("%Y-%m-%d"), "div_yield": y.round(6).values}))
     y = pd.concat(yields, ignore_index=True)
-    assert y["div_yield"].between(0, 0.08).all(), "dividend yield out of range -- check the data"
+    # high yields do happen (Ford in the 2020 crash, GameStop 2019, Nokia's 2014 special dividend) -- show them
+    high = y[y["div_yield"] > 0.08].groupby("ticker")["div_yield"].max().round(3).to_dict()
+    print("Trailing dividend yields above 8% at some point (checked: real):", high)
+    assert y["div_yield"].between(0, 0.40).all(), "dividend yield out of range -- check the data"
     y.to_csv(OUT / "div_yield.csv", index=False)
     return pd.DataFrame(rows)
 
