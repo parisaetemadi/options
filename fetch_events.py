@@ -33,7 +33,7 @@ import yfinance as yf
 OUT = Path(__file__).parent / "data" / "events"
 # SEC CIK numbers (a company can have two: Google Inc. before 2015, Alphabet after)
 STOCKS = {"AAPL": [320193], "MSFT": [789019], "NVDA": [1045810], "AMZN": [1018724], "TSLA": [1318605],
-          "META": [1326801], "GOOGL": [1652044, 1288776], "AMD": [2488]}
+          "META": [1326801], "GOOGL": [1652044, 1288776], "AMD": [2488], "XOM": [34088]}
 ALL_TICKERS = ["SPY", "QQQ", "IWM", "GLD", "TLT", "XLF", *STOCKS]
 SEC_HEADERS = {"User-Agent": "options-research et1378parisa@gmail.com"}   # SEC asks for a contact
 FIRST = "2013-01-01"

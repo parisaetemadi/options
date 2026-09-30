@@ -22,7 +22,7 @@ import yfinance as yf
 
 ROOT = Path(__file__).parent
 OUT = ROOT / "data" / "stocks"
-TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "GOOGL", "AMD", "GLD", "TLT", "XLF"]
+TICKERS = ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA", "META", "GOOGL", "AMD", "GLD", "TLT", "XLF", "XOM"]
 
 
 def download():

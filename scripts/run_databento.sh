@@ -6,7 +6,7 @@ cd /Users/parisaetemadi/Desktop/Projects/options || exit 1
 exec >> logs/databento.log 2>&1
 D=data/databento
 if pgrep -f "python -u download_databento.py" > /dev/null; then exit 0; fi   # already running
-for G in core extra; do
+for G in core extra more; do
   [ -f $D/COMPLETE_$G ] && [ -f $D/REPAIRED_$G ] && continue
   echo "=== $G: started by macOS $(date)"
   /usr/bin/caffeinate -i .venv/bin/python -u download_databento.py --group $G
