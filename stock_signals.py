@@ -35,20 +35,9 @@ GROUPS = ["core", "extra"] if "--all" in sys.argv else ["core"]     # --all: all
 q = pd.concat([pd.read_parquet(tr.Path(tr.__file__).parent / "models" / f"dataset_{g}.parquet",
                                columns=["date", "ticker", "type", "expiration", "T", "x", "iv", "atm_iv", "atm30", "rv21"])
                .astype({"date": str, "ticker": str, "type": str, "expiration": str}) for g in GROUPS], ignore_index=True)
-dte = q["T"] * 365
-near = q[dte.between(20, 45)]
-near = near[(near["T"] - 30 / 365).abs() == near.groupby(["date", "ticker"])["T"].transform(lambda t: (t - 30 / 365).abs().min())]
-wing = lambda d, lo, hi: d[d["x"].between(lo, hi)].groupby(["date", "ticker"]).apply(
-    lambda g: (g["iv"] / g["atm_iv"]).mean() - 1)
-sig = pd.DataFrame({
-    "put_skew": wing(near[near["type"] == "put"], -1.5, -0.5),
-    "call_skew": wing(near[near["type"] == "call"], 0.5, 1.5),
-    "atm": near.groupby(["date", "ticker"])["atm_iv"].first(),
-    "vrp": near.groupby(["date", "ticker"])["atm30"].first() - near.groupby(["date", "ticker"])["rv21"].first()})
-far = q[dte.between(60, 100)].groupby(["date", "ticker"])["atm_iv"].median()
-sig["term"] = far / sig["atm"] - 1
-del q, near
-sig = sig.reset_index().sort_values(["ticker", "date"])
+sig = tr.smile_signals(q)
+del q
+sig = sig.sort_values(["ticker", "date"])
 g = sig.groupby("ticker")
 sig["d_put_skew"] = sig["put_skew"] - g["put_skew"].shift(5)
 sig["d_atm"] = np.log(sig["atm"] / g["atm"].shift(5))

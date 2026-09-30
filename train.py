@@ -113,12 +113,28 @@ def load_dataset(groups=("core",), refresh=False):
     # ---------- 3. Load quotes, clean them, back out IV ----------
     files = sorted(f for g in groups for f in (DATA / "databento" / "quotes" / g).glob("*/*.parquet"))
     q = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    q = prepare(q)
+    q = q.reset_index(drop=True)
+    # keep it compact on a 17 GB laptop: 32-bit numbers (plenty of precision here) and categories
+    for c in q.columns:
+        if q[c].dtype == "float64":
+            q[c] = q[c].astype("float32")
+    for c in ("date", "ticker", "type", "expiration"):
+        q[c] = q[c].astype("category")
+    CACHE.parent.mkdir(exist_ok=True)
+    q.to_parquet(CACHE, index=False)
+    return q
+
+
+def prepare(q):
+    """Raw quotes (date, ticker, type, strike, expiration, spot, bid, ask, ...) from any source ->
+    clean quotes with IV, ATM level and every model input."""
     q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
     n0 = len(q)
     q["mid"] = (q["bid"] + q["ask"]) / 2
     q = q[(q["bid"] > 0) & (q["ask"] > q["bid"]) & (q["mid"] >= 0.05)
           & ((q["ask"] - q["bid"]) / q["mid"] <= MAX_SPREAD)]
-    print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({len(files)} days, {q['date'].min()} to {q['date'].max()})")
+    print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({q['date'].nunique()} days, {q['date'].min()} to {q['date'].max()})")
 
     q = add_events(q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date"))
     q["T"] = (pd.to_datetime(q["expiration"]) - pd.to_datetime(q["date"])).dt.days / 365
@@ -159,18 +175,24 @@ def load_dataset(groups=("core",), refresh=False):
     q["x"] = q["log_m"] / (q["atm_iv"] * np.sqrt(q["T"]))          # moneyness in "standard deviations"
     q["iv_ratio"] = q["iv"] / q["atm_iv"]                          # what the model predicts
     print(f"Options with an ATM level for their expiry: {len(q):,}")
-
-
-    q = q.reset_index(drop=True)
-    # keep it compact on a 17 GB laptop: 32-bit numbers (plenty of precision here) and categories
-    for c in q.columns:
-        if q[c].dtype == "float64":
-            q[c] = q[c].astype("float32")
-    for c in ("date", "ticker", "type", "expiration"):
-        q[c] = q[c].astype("category")
-    CACHE.parent.mkdir(exist_ok=True)
-    q.to_parquet(CACHE, index=False)
     return q
+
+def smile_signals(q):
+    """Per ticker and day, from prepared quotes (the expiry ~30 days out; see stock_signals.py):
+    put_skew / call_skew (IV ~1 standard deviation out vs ATM), atm (its ATM IV), vrp (30-day ATM IV
+    minus 21-day realized vol), term (ATM IV 60-100 days out vs ~30 days, minus 1)."""
+    dte = q["T"] * 365
+    near = q[dte.between(20, 45)]
+    near = near[(near["T"] - 30 / 365).abs() == near.groupby(["date", "ticker"])["T"].transform(lambda t: (t - 30 / 365).abs().min())]
+    wing = lambda d, lo, hi: d[d["x"].between(lo, hi)].groupby(["date", "ticker"]).apply(
+        lambda g: (g["iv"] / g["atm_iv"]).mean() - 1)
+    by = near.groupby(["date", "ticker"])
+    sig = pd.DataFrame({"put_skew": wing(near[near["type"] == "put"], -1.5, -0.5),
+                        "call_skew": wing(near[near["type"] == "call"], 0.5, 1.5),
+                        "atm": by["atm_iv"].first(), "vrp": by["atm30"].first() - by["rv21"].first()})
+    sig["term"] = q[dte.between(60, 100)].groupby(["date", "ticker"])["atm_iv"].median() / sig["atm"] - 1
+    return sig.reset_index()
+
 
 NUMERIC = ["x", "log_m", "sqrt_T", "atm_iv", "atm30", "rv5", "rv21", "rv63", "ret5", "ret21", "vix_prev",
            "days_to_event", "event_before_expiry",
