@@ -57,15 +57,21 @@ def market_data():
 
 
 # ---------- 2. Stock features, using only the past ----------
-def stock_features():
-    s = pd.read_csv(DATA / "databento" / "underlying.csv").sort_values(["ticker", "date"])
-    g = s.groupby("ticker")["close"]
-    s["ret"] = g.transform(lambda c: np.log(c / c.shift(1)))
-    # prices here are the real traded ones (not split-adjusted), so undo the fake move on split days
-    sp = pd.read_csv(DATA / "events" / "splits.csv")
-    s = s.merge(sp, on=["ticker", "date"], how="left")
-    s["ret"] += np.log(s["ratio"].fillna(1.0))
-    s = s.drop(columns="ratio")
+def stock_features(adjusted=None):
+    """adjusted: optional split-adjusted closes (ticker, date, close), e.g. Yahoo's -- used where our
+    Databento files aren't available (GitHub). Otherwise the real traded closes, corrected for splits."""
+    if adjusted is not None:
+        s = adjusted[["ticker", "date", "close"]].sort_values(["ticker", "date"]).copy()
+        s["ret"] = s.groupby("ticker")["close"].transform(lambda c: np.log(c / c.shift(1)))
+    else:
+        s = pd.read_csv(DATA / "databento" / "underlying.csv").sort_values(["ticker", "date"])
+        g = s.groupby("ticker")["close"]
+        s["ret"] = g.transform(lambda c: np.log(c / c.shift(1)))
+        # prices here are the real traded ones (not split-adjusted), so undo the fake move on split days
+        sp = pd.read_csv(DATA / "events" / "splits.csv")
+        s = s.merge(sp, on=["ticker", "date"], how="left")
+        s["ret"] += np.log(s["ratio"].fillna(1.0))
+        s = s.drop(columns="ratio")
     for days in (5, 21, 63):
         s[f"rv{days}"] = s.groupby("ticker")["ret"].transform(lambda r: r.rolling(days).std() * np.sqrt(252))
     s["ret5"] = s.groupby("ticker")["ret"].transform(lambda r: r.rolling(5).sum())
@@ -96,8 +102,10 @@ def add_events(q):
         q[f"days_to_{kind}"] = (q["mday"] - q["day"]).dt.days.fillna(NO_EVENT_DAYS).clip(upper=NO_EVENT_DAYS)
         q[f"{kind}_before_expiry"] = (q["mday"] <= pd.to_datetime(q["expiration"])).astype(float)
         q = q.drop(columns="mday")
-    dy = pd.read_csv(DATA / "events" / "div_yield.csv")
-    q = q.merge(dy, on=["ticker", "date"], how="left")
+    # latest known dividend yield (days after the file was last refreshed keep the last value)
+    dy = pd.read_csv(DATA / "events" / "div_yield.csv").assign(dday=lambda d: pd.to_datetime(d["date"]))
+    q = pd.merge_asof(q.sort_values("day"), dy.drop(columns="date").sort_values("dday"), left_on="day",
+                      right_on="dday", by="ticker", direction="backward").drop(columns="dday")
     q["div_yield"] = q["div_yield"].fillna(0.0)                # AMZN, TSLA pay none
     return q.drop(columns=["day", "event_day"])
 
@@ -126,9 +134,9 @@ def load_dataset(groups=("core",), refresh=False):
     return q
 
 
-def prepare(q):
+def prepare(q, adjusted_closes=None):
     """Raw quotes (date, ticker, type, strike, expiration, spot, bid, ask, ...) from any source ->
-    clean quotes with IV, ATM level and every model input."""
+    clean quotes with IV, ATM level and every model input. (adjusted_closes: see stock_features.)"""
     q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
     n0 = len(q)
     q["mid"] = (q["bid"] + q["ask"]) / 2
@@ -136,7 +144,7 @@ def prepare(q):
           & ((q["ask"] - q["bid"]) / q["mid"] <= MAX_SPREAD)]
     print(f"Quotes: {n0:,} loaded, {len(q):,} clean ({q['date'].nunique()} days, {q['date'].min()} to {q['date'].max()})")
 
-    q = add_events(q.merge(stock_features(), on=["ticker", "date"]).merge(market_data(), on="date"))
+    q = add_events(q.merge(stock_features(adjusted_closes), on=["ticker", "date"]).merge(market_data(), on="date"))
     q["T"] = (pd.to_datetime(q["expiration"]) - pd.to_datetime(q["date"])).dt.days / 365
     q["moneyness"] = q["strike"] / q["spot"]
 
