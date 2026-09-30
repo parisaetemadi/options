@@ -9,7 +9,7 @@ For each trading day (newest first, going back to 2013):
 Contract lists ("definitions") are bought once a week and reused for that week.
 
 Tickers come in groups, each stored separately (data/databento/quotes/<group>/...):
-  core:  the original 8           extra: 6 more liquid names added later     more: XOM (energy), added last
+  core:  the original 8           extra: 6 more liquid names added later     more: XOM (energy)     wide: 25 more of the top 100
 Meta's options traded as "FB" until 2022-06-09; that's handled automatically.
 
 Every day is quality-checked (coverage, bid <= ask, spreads) into data/databento/quality_<group>.csv.
@@ -34,7 +34,10 @@ import yfinance as yf
 
 GROUPS = {"core": ["SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "TSLA"],
           "extra": ["META", "GOOGL", "AMD", "GLD", "TLT", "XLF"],
-          "more": ["XOM"]}
+          "more": ["XOM"],
+          # 25 long-history names from the top 100 option underlyings (snapshot_yahoo.py), added 2026-09-30
+          "wide": ["INTC", "MU", "NFLX", "ORCL", "AVGO", "NOK", "TSM", "NOW", "BAC", "WMT", "NKE", "F", "PFE",
+                   "AAL", "UNH", "QCOM", "CRM", "BA", "T", "MRVL", "PYPL", "BABA", "GME", "MSTR", "SMCI"]}
 ALL_TICKERS = [t for g in GROUPS.values() for t in g]
 OLD_ROOTS = {"META": ("FB", "2022-06-09")}   # options root before that date (Facebook -> Meta rename)
 TICKERS = GROUPS["core"]                     # set by --group
