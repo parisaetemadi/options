@@ -42,7 +42,9 @@ GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
-BUDGET = 123.0                # hard stop (free credit is $125; keep a $2 buffer)
+BUDGET = 120.0                # hard stop (free credit is $125; keep a $5 buffer)
+# Databento's bill (portal, 2026-09-30: $55.76) matches our quote purchases only -- contract lists
+# ("definition" schema) are quoted by get_cost but not billed, so they're tracked separately.
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
 STRIKE_RANGE = 0.20
 MIN_DAYS, MAX_DAYS = 7, 365
@@ -74,19 +76,23 @@ LEDGER = OUT / "spent.json"
 def spent():
     return json.loads(LEDGER.read_text())["spent"] if LEDGER.exists() else ALREADY_SPENT
 
-def charge(cost, what):
+def charge(cost, what, billed=True):
     with _lock:
-        total = spent() + cost
-        if total > BUDGET:
-            raise SystemExit(f"Budget reached: ${spent():.2f} spent, next item ({what}) costs ${cost:.4f}. Stopping.")
+        led = json.loads(LEDGER.read_text()) if LEDGER.exists() else {"spent": ALREADY_SPENT}
+        if not billed:
+            led["definitions_quoted_not_billed"] = round(led.get("definitions_quoted_not_billed", 0) + cost, 4)
+        elif led["spent"] + cost > BUDGET:
+            raise SystemExit(f"Budget reached: ${led['spent']:.2f} spent, next item ({what}) costs ${cost:.4f}. Stopping.")
+        else:
+            led["spent"] = round(led["spent"] + cost, 4)
         LEDGER.parent.mkdir(parents=True, exist_ok=True)
-        LEDGER.write_text(json.dumps({"spent": round(total, 4)}))
+        LEDGER.write_text(json.dumps(led))
 
 def get(schema, symbols, stype, start, end, what, bill=None):
     """Cost check, then download. Retries if Databento's gateway times out."""
     kw = dict(dataset=DATASET, symbols=symbols, stype_in=stype, schema=schema, start=start, end=end)
     cost = retry(lambda **k: client().metadata.get_cost(**k), **kw)
-    charge(cost, what)
+    charge(cost, what, billed=schema != "definition")
     if bill is not None:
         bill.append(cost)
     return retry(lambda **k: client().timeseries.get_range(**k).to_df(), **kw)
