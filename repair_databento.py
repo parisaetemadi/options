@@ -54,7 +54,11 @@ def main(group):
             continue
         # fresh contract list for exactly this day, only the broken tickers
         nxt = days[i + 1] if i + 1 < len(days) else day
-        defs = dd.buy_definitions(bad, day, nxt, f"repair definitions {group} {day}")
+        try:
+            defs = dd.buy_definitions(bad, day, nxt, f"repair definitions {group} {day}")
+        except dd.db.BentoClientError as e:        # e.g. the contracts were renamed that week (XLF spin-off, Sep 2016)
+            print(f"{day}: {bad} can't be repaired ({str(e).splitlines()[0][:80]}) -- left as is")
+            continue
         spot = closes.xs(day, level="date")[bad]
         fixed_path = dd.quote_path(day)
         backup = q.copy()
