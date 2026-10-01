@@ -12,6 +12,9 @@ A. MOVE rules: when the stock moved more than `thr` over the last `look` (15/30/
    At most one trade per ticker per snapshot; entries 9:45-15:30.
 B. TIME-OF-DAY: buy (or sell) the at-the-money straddle of the nearest expiry at each time of day and
    close it at 16:00 -- is short-dated volatility cheap or expensive at certain hours?
+C. SCHEDULED NEWS: the chosen move rule and the 9:45 straddle on Fed days (decision at 2pm, inside the
+   session) vs CPI/jobs days (released 8:30am, before the open) vs normal days, all months together.
+   Only ~20 news days -- a description, not a test.
 
 Costs: buy at the ask, sell at the bid (fill 1.0; fill 0.5 shown too), IBKR $0.70 per contract each way.
 Rules are picked on 2026-01-23 .. 2026-06-30 and checked ONCE on 2026-07-01 .. 2026-09-28.
@@ -93,8 +96,8 @@ def pnl(e, side, fill):
     return e.assign(pnl=p * 100 - 2 * COMM, premium=e["mid"] * 100)
 
 
-def stats(t):
-    if len(t) < 20:
+def stats(t, min_n=20):
+    if len(t) < min_n:
         return {"n": len(t)}
     by_day = t.groupby("date")["pnl"].sum()
     return {"n": len(t), "$/trade": t["pnl"].mean(), "% won": (t["pnl"] > 0).mean() * 100,
@@ -112,6 +115,7 @@ def report(name, rows):
         c = stats(t)
         print(f"  CONFIRMATION {SPLIT}..: {label}: {c['n']} trades, ${c.get('$/trade', np.nan):,.2f}/trade, "
               f"{c.get('% won', np.nan):.0f}% won, t {c.get('t (by day)', np.nan):.1f}")
+    return best
 
 
 # ---------- A. move rules ----------
@@ -130,7 +134,7 @@ for r in (dict(zip(GRID, v)) for v in itertools.product(*GRID.values())):
     full, half = pnl(e, "buy", 1.0), pnl(e, "buy", 0.5)
     rows.append({"rule": r, "sel": full[full["date"] < SPLIT], "conf": full[full["date"] >= SPLIT],
                  "conf_half": half[half["date"] >= SPLIT]})
-report("A. buy short-dated options on intraday moves", rows)
+best_move = report("A. buy short-dated options on intraday moves", rows)
 
 # ---------- B. time of day: straddle bought (or sold) at each time, closed at 16:00 ----------
 rows = []
@@ -142,3 +146,19 @@ for side, hhmm in itertools.product(["buy", "sell"], sorted(straddle["hhmm"].uni
     rows.append({"rule": {"side": side, "enter": hhmm}, "sel": full[full["date"] < SPLIT],
                  "conf": full[full["date"] >= SPLIT], "conf_half": half[half["date"] >= SPLIT]})
 report("B. at-the-money straddle at a time of day, closed at 16:00", rows)
+
+# ---------- C. scheduled news days vs normal days ----------
+ev = pd.read_csv("data/events/macro.csv")
+kind = {d: "CPI/jobs day" for d in ev.loc[ev["type"] != "fomc", "reaction_day"]} \
+    | {d: "Fed day" for d in ev.loc[ev["type"] == "fomc", "reaction_day"]}           # Fed wins when both
+day_kind = lambda t: t["date"].map(kind).fillna("normal day")
+e = exits(atm[atm["hhmm"] == "09:45"], "close")
+straddles = {side: pnl(e, side, 1.0).groupby(["date", "ticker"]).agg(pnl=("pnl", "sum")).reset_index() for side in ("buy", "sell")}
+print(f"\n===== C. scheduled news days, {q['date'].min()} .. {q['date'].max()}, full bid/ask + fees =====")
+for name, t in [(f"move rule {best_move['rule']}", pd.concat([best_move["sel"], best_move["conf"]])),
+                ("buy 9:45 straddle, hold to 16:00", straddles["buy"]), ("sell 9:45 straddle, hold to 16:00", straddles["sell"])]:
+    print(name)
+    for k, g in t.groupby(day_kind(t)):
+        c = stats(g, min_n=5)
+        print(f"  {k:13s} {g['date'].nunique():3d} days, {c['n']:4d} trades, ${c.get('$/trade', np.nan):8,.2f}/trade, "
+              f"{c.get('% won', np.nan):3.0f}% won, t {c.get('t (by day)', np.nan):.1f}")
