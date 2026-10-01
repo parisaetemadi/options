@@ -4,6 +4,7 @@
 # repair flagged days once. When every group is done, it does nothing.
 cd /Users/parisaetemadi/Desktop/Projects/options || exit 1
 exec >> logs/databento.log 2>&1
+echo "Databento downloads are switched off (free credit used up, 2026-10-01)."; exit 0
 D=data/databento
 if pgrep -f "python -u download_databento.py" > /dev/null; then exit 0; fi   # already running
 for G in core extra more wide; do

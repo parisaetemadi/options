@@ -45,7 +45,7 @@ GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
-BUDGET = 120.0                # hard stop (free credit is $125; keep a $5 buffer)
+BUDGET = 0.0                  # STOPPED 2026-10-01: the free credit is used up (portal: $0 credits, $4.14 owed). No purchases without the user's explicit OK.
 # Databento's bill (portal, 2026-09-30: $55.76) matches our quote purchases only -- contract lists
 # ("definition" schema) are quoted by get_cost but not billed, so they're tracked separately.
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
