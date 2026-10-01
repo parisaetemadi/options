@@ -25,6 +25,7 @@ TICKERS = ["SPY", "QQQ"]
 FIRST, LAST = "2025-09-29", dd.LAST_DAY
 STEP_MIN, MAX_DTE, STRIKE_RANGE = 15, 7, 0.03
 dd.BUDGET = 106.0          # the other downloads stop at $95; this one may add the approved ~$11 on top
+CAP = 12.0                 # this downloader's own limit (what the user approved), counted x1.15 like the ledger
 OUT = dd.OUT / "intraday"
 
 
@@ -90,6 +91,11 @@ def main(max_days):
         if (OUT / f"{day}.parquet").exists():
             continue
         if done >= max_days:
+            break
+        qf = OUT / "quality.csv"
+        used = pd.read_csv(qf)["cost"].sum() * dd.SAFETY if qf.exists() else 0.0
+        if used + 0.08 > CAP:
+            print(f"Stopping at the approved limit: ${used:.2f} of ${CAP:.0f} used (newest days first).")
             break
         prev = all_days[all_days.index(day) - 1]
         t0 = time.time()
