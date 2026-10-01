@@ -45,7 +45,8 @@ GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
-BUDGET = 95.0                 # stop at $95 of usage = keep >= $30 of the $125 credit (user OK'd resuming 2026-10-01)
+BUDGET = 106.0                # all downloads together stop at $106 of usage = keep >= ~$19 of the $125 credit
+                              # (user OK'd: resume 'wide' keeping $30, plus ~$11-12 intraday from that reserve)
 SAFETY = 1.15                 # our count ran ~8% under the real bill: count every purchase 15% higher
 # Databento's bill (portal, 2026-09-30: $55.76) matches our quote purchases only -- contract lists
 # ("definition" schema) are quoted by get_cost but not billed, so they're tracked separately.
@@ -108,7 +109,7 @@ def retry(f, **kw):
     for attempt in range(5):
         try:
             return f(**kw)
-        except (db.BentoServerError, db.BentoClientError, requests.exceptions.RequestException) as e:
+        except (db.BentoServerError, db.BentoClientError, db.BentoError, requests.exceptions.RequestException) as e:
             if isinstance(e, db.BentoClientError) and getattr(e, "http_status", None) != 429:
                 raise                                   # a real mistake in our request: don't retry
             print(f"  network/server error ({str(e)[:120]}), retrying...", flush=True)
