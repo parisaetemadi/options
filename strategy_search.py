@@ -27,6 +27,7 @@ PRED = ROOT / "models" / "walkforward_predictions.parquet"
 SELECT_YEARS = range(2016, 2022)
 MIN_ABS_LOG_M = 0.03
 KEY = ["ticker", "type", "strike", "expiration"]
+COMMISSION = 0.70     # $ per option contract per trade: IBKR Pro US options $0.65 + ~$0.02 regulatory + exchange fees
 PANEL_GROUPS = ("core", "extra")     # quote folders the trade simulator reads (all 14 tickers since 2013)
 GRID = {"side": ["sell", "buy"], "gap": [0.02, 0.03, 0.05], "hold": [5, 10, 20], "cap": [None, 5, 1]}
 
@@ -119,7 +120,7 @@ def trade_pnl(entry, h, panel, side, fill=1.0):
         pnl = ((x_mid - fill * x_half) - (e_mid + fill * e_half)) - hedge
     else:
         pnl = -(((x_mid + fill * x_half) - (e_mid - fill * e_half)) - hedge)
-    return entry.assign(pnl=pnl * 100, dropped=~alive)
+    return entry.assign(pnl=pnl * 100 - 2 * COMMISSION, dropped=~alive)          # commission to open and to close
 
 
 def pick(p, side, gap, cap):
