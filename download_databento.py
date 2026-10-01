@@ -45,7 +45,8 @@ GROUP = "core"
 DATASET = "OPRA.PILLAR"
 FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
-BUDGET = 0.0                  # STOPPED 2026-10-01: the free credit is used up (portal: $0 credits, $4.14 owed). No purchases without the user's explicit OK.
+BUDGET = 95.0                 # stop at $95 of usage = keep >= $30 of the $125 credit (user OK'd resuming 2026-10-01)
+SAFETY = 1.15                 # our count ran ~8% under the real bill: count every purchase 15% higher
 # Databento's bill (portal, 2026-09-30: $55.76) matches our quote purchases only -- contract lists
 # ("definition" schema) are quoted by get_cost but not billed, so they're tracked separately.
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
@@ -84,10 +85,10 @@ def charge(cost, what, billed=True):
         led = json.loads(LEDGER.read_text()) if LEDGER.exists() else {"spent": ALREADY_SPENT}
         if not billed:
             led["definitions_quoted_not_billed"] = round(led.get("definitions_quoted_not_billed", 0) + cost, 4)
-        elif led["spent"] + cost > BUDGET:
+        elif led["spent"] + cost * SAFETY > BUDGET:
             raise SystemExit(f"Budget reached: ${led['spent']:.2f} spent, next item ({what}) costs ${cost:.4f}. Stopping.")
         else:
-            led["spent"] = round(led["spent"] + cost, 4)
+            led["spent"] = round(led["spent"] + cost * SAFETY, 4)
         LEDGER.parent.mkdir(parents=True, exist_ok=True)
         LEDGER.write_text(json.dumps(led))
 
