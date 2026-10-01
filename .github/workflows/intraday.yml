@@ -1,0 +1,39 @@
+# Free intraday option history (SPY, QQQ near the money) from Yahoo, every ~30 minutes in market hours.
+name: Intraday Yahoo quotes
+
+on:
+  schedule:
+    # UTC; the script itself checks New York market hours (9:35am-4:05pm), so summer/winter both work
+    - cron: "13,43 13-21 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: intraday
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install pandas yfinance
+
+      - run: python snapshot_intraday.py
+
+      - name: Save
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/yahoo_intraday 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "Intraday quotes: $(date -u +%F' '%H:%M)"
+          git pull --rebase origin main
+          git push

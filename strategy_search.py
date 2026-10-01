@@ -88,8 +88,9 @@ def panel_for(days):
             .set_index(KEY + ["day_no"])[["bid", "ask", "mid", "spot", "delta"]])
 
 
-def trade_pnl(entry, h, panel, side):
-    """P&L in $ per contract for each entry, held h days, delta-hedged daily, real bid/ask both ways."""
+def trade_pnl(entry, h, panel, side, fill=1.0):
+    """P&L in $ per contract for each entry, held h days, delta-hedged daily, real bid/ask both ways.
+    fill: share of the half-spread paid on each side (1.0 = buy at the ask / sell at the bid)."""
     entry = entry[(entry["day_no"] + h < len(all_days)) & (entry["T"] * 365 >= 7 + np.ceil(h * 7 / 5) + 3)]
     entry = entry[~crosses_split(entry, h)]
     if entry.empty:
@@ -111,12 +112,13 @@ def trade_pnl(entry, h, panel, side):
     value = bs_price(entry["type"].values, prev_spot, entry["strike"].values, T_k, entry["tbill"].values,
                      entry["iv"].values, entry["div_yield"].values)
     spread = (entry["ask"] - entry["bid"]).values
-    exit_bid = np.where(alive, nd["bid"].values, value - spread)      # dropped trades: a full extra spread
-    exit_ask = np.where(alive, nd["ask"].values, value + spread)
+    x_mid = np.where(alive, nd["mid"].values, value)
+    x_half = np.where(alive, (nd["ask"] - nd["bid"]).values / 2, spread)   # dropped trades: a full extra spread
+    e_mid, e_half = entry["mid"].values, spread / 2
     if side == "buy":
-        pnl = (exit_bid - entry["ask"].values) - hedge
+        pnl = ((x_mid - fill * x_half) - (e_mid + fill * e_half)) - hedge
     else:
-        pnl = -((exit_ask - entry["bid"].values) - hedge)
+        pnl = -(((x_mid + fill * x_half) - (e_mid - fill * e_half)) - hedge)
     return entry.assign(pnl=pnl * 100, dropped=~alive)
 
 
