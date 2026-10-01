@@ -47,7 +47,7 @@ FIRST_DAY = "2013-04-01"      # OPRA history on Databento starts here
 LAST_DAY = "2026-09-28"       # history ends here: newer days need a paid live license (403); Yahoo covers them
 BUDGET = 106.0                # all downloads together stop at $106 of usage = keep >= ~$19 of the $125 credit
                               # (user OK'd: resume 'wide' keeping $30, plus ~$11-12 intraday from that reserve)
-SAFETY = 1.15                 # our count ran ~8% under the real bill: count every purchase 15% higher
+SAFETY = 1.25                 # the real bill runs ~15% above get_cost quotes; count 25% higher to stay on the safe side
 # Databento's bill (portal, 2026-09-30: $55.76) matches our quote purchases only -- contract lists
 # ("definition" schema) are quoted by get_cost but not billed, so they're tracked separately.
 ALREADY_SPENT = 0.20          # the tests we ran before this script existed
