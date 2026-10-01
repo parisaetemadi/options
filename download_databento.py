@@ -81,7 +81,9 @@ def spent():
     return json.loads(LEDGER.read_text())["spent"] if LEDGER.exists() else ALREADY_SPENT
 
 def charge(cost, what, billed=True):
-    with _lock:
+    import fcntl
+    with _lock, open(LEDGER.with_suffix(".lock"), "w") as fl:
+        fcntl.flock(fl, fcntl.LOCK_EX)              # several downloaders may share the ledger
         led = json.loads(LEDGER.read_text()) if LEDGER.exists() else {"spent": ALREADY_SPENT}
         if not billed:
             led["definitions_quoted_not_billed"] = round(led.get("definitions_quoted_not_billed", 0) + cost, 4)
