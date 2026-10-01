@@ -52,10 +52,18 @@ def closes():
     raw = yf.download(TICKERS, start="2012-06-01", auto_adjust=False, actions=False, progress=False)["Close"]
     c = raw.rename_axis("date").reset_index().melt("date", var_name="ticker", value_name="close").dropna()
     c["date"] = c["date"].dt.strftime("%Y-%m-%d")
+    # the bulk download sometimes lacks the newest day (seen on GitHub): add the last few days per ticker
+    recent = []
+    for t in TICKERS:
+        h = yf.Ticker(t).history(period="5d", auto_adjust=False)["Close"]
+        recent.append(pd.DataFrame({"date": h.index.strftime("%Y-%m-%d"), "ticker": t, "close": h.values}))
+    c = pd.concat([c] + recent).drop_duplicates(["date", "ticker"], keep="first").dropna()
     now = pd.Timestamp.now(tz=NY)
     last_final = now.strftime("%Y-%m-%d") if now.hour * 60 + now.minute >= 16 * 60 + 30 else \
         (now - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-    return c[c["date"] <= last_final]
+    c = c[c["date"] <= last_final]
+    print(f"Closing prices up to {c['date'].max()} ({c[c['date'] == c['date'].max()]['ticker'].nunique()} tickers)")
+    return c
 
 
 def add_yahoo_days(hist, px):
@@ -64,7 +72,10 @@ def add_yahoo_days(hist, px):
     new = []
     for f in sorted((tr.DATA / "yahoo").glob("*.csv.gz")):
         day = f.name[:10]
-        if day in have or day <= hist["date"].max() or day not in set(px["date"]):
+        if day in have or day <= hist["date"].max():
+            continue
+        if day not in set(px["date"]):
+            print(f"{day}: snapshot waiting for that day's closing prices")
             continue
         y = pd.read_csv(f)
         y = y[y["ticker"].isin(TICKERS)].assign(date=day)
@@ -125,12 +136,37 @@ def pnl(W, px):
     ret = r.reindex(book.index).fillna(0)
     held = book.shift(1).fillna(0)                                 # what we held going INTO each day
     gross = (held * ret[held.columns]).sum(axis=1) * CAPITAL
-    cost = book.diff().abs().sum(axis=1).fillna(book.abs().sum(axis=1)) * COST * CAPITAL
+    cost = (book - book.shift(1).fillna(0)).abs().sum(axis=1) * COST * CAPITAL   # incl. the first day's entry
     out = pd.DataFrame({"gross": gross, "cost": cost})
     out["net"] = out["gross"] - out["cost"]
     out["equity"] = CAPITAL + out["net"].cumsum()
     out["spy_hold"] = CAPITAL * (1 + r["SPY"].reindex(book.index).fillna(0)).cumprod()
-    return out.rename_axis("date").round(2), (book.iloc[-1] * CAPITAL).round(0)
+    return out.rename_axis("date").round(2), (book * CAPITAL).round(0)
+
+
+def report(out, book, W):
+    """data/paper/report.md: one row per trading day, plus today's positions."""
+    first = W["signal_date"].min()
+    eq, spy = out["equity"].iloc[-1], out["spy_hold"].iloc[-1]
+    lines = ["# Paper trading -- FAKE money", "",
+             f"Stock-signal strategy (stock_signals.py): {len(TICKERS)} tickers, ${CAPITAL:,} gross, long and short "
+             f"in equal dollars, each day's ranking held {HOLD} days, trades at the next close, {COST:.2%} cost per trade.",
+             f"First decision {first}; first trades {out.index[0]}. Updated {pd.Timestamp.now(tz=NY):%Y-%m-%d %H:%M %Z}.", "",
+             f"**Account: ${eq:,.0f} ({eq / CAPITAL - 1:+.2%})** -- $100k simply held in SPY: ${spy:,.0f} "
+             f"({spy / CAPITAL - 1:+.2%}). {len(out)} trading days: far too few to judge (needs 6-12 months).", "",
+             "## Every day", "",
+             "| Date | Day P&L | of which costs | Account | Total | SPY instead | Biggest longs | Biggest shorts |",
+             "|---|---:|---:|---:|---:|---:|---|---|"]
+    for d, r in out.iloc[::-1].iterrows():
+        b = book.loc[d]
+        longs = ", ".join(f"{t} ${v / 1000:.1f}k" for t, v in b[b > 0].nlargest(3).items())
+        shorts = ", ".join(f"{t} ${-v / 1000:.1f}k" for t, v in b[b < 0].nsmallest(3).items())
+        lines.append(f"| {d} | ${r['net']:+,.0f} | ${r['cost']:,.0f} | ${r['equity']:,.0f} | {r['equity'] / CAPITAL - 1:+.2%} "
+                     f"| ${r['spy_hold']:,.0f} | {longs} | {shorts} |")
+    b = book.iloc[-1]
+    lines += ["", f"## Positions after the {book.index[-1]} close", "", "| Ticker | Position |", "|---|---:|"]
+    lines += [f"| {t} | {'long' if v > 0 else 'short'} ${abs(v):,.0f} |" for t, v in b[b != 0].sort_values(ascending=False).items()]
+    (PAPER / "report.md").write_text("\n".join(lines) + "\n")
 
 
 def main():
@@ -154,7 +190,8 @@ def main():
     if out is None:
         return print("First paper trades happen at the next close -- nothing to score yet.")
     out.to_csv(PAPER / "pnl.csv")
-    book.rename("position_usd").rename_axis("ticker").to_csv(PAPER / "book.csv")
+    book.iloc[-1].rename("position_usd").rename_axis("ticker").to_csv(PAPER / "book.csv")
+    report(out, book, W)
     last = out.iloc[-1]
     print(f"Paper account {out.index[-1]}: ${last['equity']:,.0f} (net {last['equity'] / CAPITAL - 1:+.2%}); "
           f"$100k in SPY instead: ${last['spy_hold']:,.0f} ({last['spy_hold'] / CAPITAL - 1:+.2%}); "
