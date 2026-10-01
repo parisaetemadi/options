@@ -85,6 +85,11 @@ for target in ["next1", "next5"]:
         d.loc[cur, f"fc_{target}"] = m.predict(X(d[cur]))
 
 
+# save the walk-forward forecasts (each year's from a model trained on earlier years only) for option_strategies.py
+d[["date", "ticker", "fc_next1", "fc_next5"]].to_parquet(
+    tr.Path(tr.__file__).parent / "models" / f"stock_forecasts_{'_'.join(GROUPS)}{'_notk' if NO_TICKERS else ''}.parquet")
+
+
 def backtest(fc, h):
     """Dollar-neutral: weight = rank of forecast, centred, sums to |1|; held h days (1/h rebalanced daily)."""
     w = d.pivot(index="date", columns="ticker", values=fc)

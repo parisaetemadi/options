@@ -27,6 +27,7 @@ PRED = ROOT / "models" / "walkforward_predictions.parquet"
 SELECT_YEARS = range(2016, 2022)
 MIN_ABS_LOG_M = 0.03
 KEY = ["ticker", "type", "strike", "expiration"]
+PANEL_GROUPS = ("core", "extra")     # quote folders the trade simulator reads (all 14 tickers since 2013)
 GRID = {"side": ["sell", "buy"], "gap": [0.02, 0.03, 0.05], "hold": [5, 10, 20], "cap": [None, 5, 1]}
 
 
@@ -68,7 +69,8 @@ day_no = {d: i for i, d in enumerate(all_days)}
 
 def panel_for(days):
     """Daily quotes (incl. rebuilt in-the-money ones via put-call parity) for these trading days."""
-    f = pd.concat([pd.read_parquet(DATA / "databento" / "quotes" / "core" / d[:4] / f"{d}.parquet") for d in days],
+    files = [DATA / "databento" / "quotes" / g / d[:4] / f"{d}.parquet" for d in days for g in PANEL_GROUPS]
+    f = pd.concat([pd.read_parquet(p) for p in files if p.exists()],
                   ignore_index=True).astype({"date": str, "ticker": str, "type": str, "expiration": str})
     f = f.merge(rates, on="date").merge(divs, on=["ticker", "date"], how="left").fillna({"div_yield": 0})
     f["T"] = (pd.to_datetime(f["expiration"]) - pd.to_datetime(f["date"])).dt.days / 365
