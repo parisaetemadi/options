@@ -1,6 +1,6 @@
 """
 Free INTRADAY option history, built going forward: every ~30 minutes during market hours, save
-SPY and QQQ option quotes near the money (strikes within +-5%, expiries up to 30 days incl. same-day)
+SPY, QQQ, TSLA, IWM and NVDA option quotes near the money (strikes within +-5%, expiries up to 30 days incl. same-day)
 from Yahoo. Each row keeps the snapshot time and the last-trade time (Yahoo can lag ~15 min).
 
 One file per snapshot: data/yahoo_intraday/YYYY-MM-DD/HHMM.csv.gz (New York time)
@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 import yfinance as yf
 
-TICKERS = ["SPY", "QQQ"]
+TICKERS = ["SPY", "QQQ", "TSLA", "IWM", "NVDA"]   # the cheapest options to trade (spreads 0.4-2.2%)
 STRIKE_RANGE, MAX_DAYS = 0.05, 30
 OUT = Path(__file__).parent / "data" / "yahoo_intraday"
 

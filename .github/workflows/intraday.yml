@@ -1,4 +1,4 @@
-# Free intraday option history (SPY, QQQ near the money) from Yahoo, every ~30 minutes in market hours.
+# Free intraday option history (SPY, QQQ, TSLA, IWM, NVDA near the money) from Yahoo, every ~30 minutes in market hours.
 name: Intraday Yahoo quotes
 
 on:
