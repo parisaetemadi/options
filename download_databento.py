@@ -301,10 +301,14 @@ def main(max_days, group):
             continue
         if len(todo) >= max_days:
             break
-        try:
-            todo.append((day, row["market_close"], week_start, closes.xs(day, level="date")[TICKERS]))
+        try:   # tickers not listed yet that day (PYPL before 2015-07-06, BABA before 2014-09-19) are left out
+            spot = closes.xs(day, level="date").reindex(TICKERS).dropna()
         except KeyError:
+            spot = pd.Series(dtype=float)
+        if spot.empty:
             print(f"{day}: no stock prices, skipping")
+            continue
+        todo.append((day, row["market_close"], week_start, spot))
     print(f"{len(todo):,} days to download")
     if not todo:
         (OUT / f"COMPLETE_{GROUP}").write_text(f"All days downloaded ({pd.Timestamp.now():%Y-%m-%d %H:%M})\n")
