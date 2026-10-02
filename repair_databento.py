@@ -49,6 +49,8 @@ def main(group):
         prev_path = dd.quote_path(days[i - 1])
         prev = pd.read_parquet(prev_path).astype({"ticker": str}) if prev_path.exists() else None
         bad, q = broken_tickers(day, prev)
+        listed = closes.xs(day, level="date").index           # PYPL/BABA weren't trading yet on early days
+        bad = [t for t in bad if t in listed]
         if not bad:
             print(f"{day}: nothing broken per ticker -- leaving it")
             continue
