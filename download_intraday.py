@@ -1,9 +1,10 @@
 """
 Intraday option quotes from Databento (official OPRA feed, cbbo-1m): SPY and QQQ options expiring
 within 0-7 days, strikes within +-3% of the previous close, one snapshot every 15 minutes: the 1-minute quote ending at 9:45, 10:00, ... 16:00
-New York time (early-close days handled). Last year only: 2025-09-29 .. 2026-09-28.
+New York time (early-close days handled). Newest first, back to 2024-10-01 at most (the cap stops it first).
 
-Approved by the user 2026-10-01 (~$11; the 1-day test priced the year at ~$12). Shares the spending ledger with download_databento.py
+Approved by the user 2026-10-01 (~$11; the 1-day test priced the year at ~$12), and on 2026-10-02 ~$20 more
+(back to about late 2024, incl. the April 2025 crash; keeps ~$6 of the free credit). Shares the spending ledger with download_databento.py
 (counted x1.15); this downloader stops at BUDGET below.
 Saved per day: data/databento/intraday/raw/<day>.parquet (the purchase, first) and
 data/databento/intraday/<day>.parquet (tidy). Quality: data/databento/intraday/quality.csv
@@ -22,10 +23,10 @@ import pandas_market_calendars as mcal
 import download_databento as dd
 
 TICKERS = ["SPY", "QQQ"]
-FIRST, LAST = "2025-09-29", dd.LAST_DAY
+FIRST, LAST = "2024-10-01", dd.LAST_DAY
 STEP_MIN, MAX_DTE, STRIKE_RANGE = 15, 7, 0.03
-dd.BUDGET = 106.0          # the other downloads stop at $95; this one may add the approved ~$11 on top
-CAP = 12.0                 # this downloader's own limit (what the user approved), counted x1.15 like the ledger
+dd.BUDGET = 121.0          # ledger $100.87 after all daily downloads + the approved ~$20 extension
+CAP = 32.0                 # this downloader's own limit: $12 approved 2026-10-01 + $20 on 2026-10-02 (counted x1.25 like the ledger)
 OUT = dd.OUT / "intraday"
 
 
