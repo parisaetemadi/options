@@ -1,0 +1,89 @@
+{
+ "as_of": "2026-10-04",
+ "daily": [
+  {
+   "group": "core",
+   "tickers": [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "AAPL",
+    "MSFT",
+    "NVDA",
+    "AMZN",
+    "TSLA"
+   ],
+   "first": "2013-04-01",
+   "last": "2026-09-28",
+   "days": 3395
+  },
+  {
+   "group": "extra",
+   "tickers": [
+    "META",
+    "GOOGL",
+    "AMD",
+    "GLD",
+    "TLT",
+    "XLF"
+   ],
+   "first": "2013-04-01",
+   "last": "2026-09-28",
+   "days": 3395
+  },
+  {
+   "group": "more",
+   "tickers": [
+    "XOM"
+   ],
+   "first": "2013-04-01",
+   "last": "2026-09-28",
+   "days": 3395
+  },
+  {
+   "group": "wide",
+   "tickers": [
+    "INTC",
+    "MU",
+    "NFLX",
+    "ORCL",
+    "AVGO",
+    "NOK",
+    "TSM",
+    "NOW",
+    "BAC",
+    "WMT",
+    "NKE",
+    "F",
+    "PFE",
+    "AAL",
+    "UNH",
+    "QCOM",
+    "CRM",
+    "BA",
+    "T",
+    "MRVL",
+    "PYPL",
+    "BABA",
+    "GME",
+    "MSTR",
+    "SMCI"
+   ],
+   "first": "2013-04-01",
+   "last": "2026-09-28",
+   "days": 3395
+  }
+ ],
+ "intraday": {
+  "tickers": [
+   "SPY",
+   "QQQ"
+  ],
+  "first": "2025-05-05",
+  "last": "2026-09-28",
+  "days": 352,
+  "every": "15 min",
+  "live_share": 0.975
+ },
+ "spent": 111.83
+}

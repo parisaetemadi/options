@@ -1,0 +1,236 @@
+{
+ "as_of": "2026-10-03",
+ "data": "Databento SPY/QQQ option quotes every 15 min, 2025-05-05 .. 2026-09-28",
+ "select": "2026-01-23 .. 2026-07-01",
+ "confirm": "2026-07-01 .. 2026-09-28",
+ "fresh": "2025-05-05 .. 2026-01-23",
+ "rules": [
+  {
+   "name": "sell-straddle-1115 (paper-traded)",
+   "title": "sell the 11:15 straddle, buy it back at the close (one result per day and ticker)",
+   "tried": 48,
+   "selection": {
+    "n": 218,
+    "per_trade": 18.38,
+    "won": 61.0,
+    "t": 0.79
+   },
+   "confirmation": {
+    "n": 124,
+    "per_trade": 28.45,
+    "won": 64.5,
+    "t": 1.7
+   },
+   "confirmation_half": {
+    "n": 124,
+    "per_trade": 32.49,
+    "won": 65.3,
+    "t": 1.96
+   },
+   "fresh": {
+    "n": 362,
+    "per_trade": 12.11,
+    "won": 65.5,
+    "t": 0.77
+   },
+   "verdict": "positive in both checks but weak (t under 2) \u2014 not proven"
+  },
+  {
+   "name": "best time-of-day rule now",
+   "title": "sell the straddle at 11:15, held to the close",
+   "tried": 48,
+   "selection": {
+    "n": 218,
+    "per_trade": 18.38,
+    "won": 61.0,
+    "t": 0.79
+   },
+   "confirmation": {
+    "n": 124,
+    "per_trade": 28.45,
+    "won": 64.5,
+    "t": 1.7
+   },
+   "confirmation_half": {
+    "n": 124,
+    "per_trade": 32.49,
+    "won": 65.3,
+    "t": 1.96
+   },
+   "fresh": {
+    "n": 362,
+    "per_trade": 12.11,
+    "won": 65.5,
+    "t": 0.77
+   },
+   "verdict": "positive in both checks but weak (t under 2) \u2014 not proven"
+  },
+  {
+   "name": "best move rule now",
+   "title": "momentum after a 0.15% move over open, held to close",
+   "tried": 100,
+   "selection": {
+    "n": 4036,
+    "per_trade": 6.15,
+    "won": 35.9,
+    "t": 0.36
+   },
+   "confirmation": {
+    "n": 1986,
+    "per_trade": -31.65,
+    "won": 26.0,
+    "t": -2.42
+   },
+   "confirmation_half": {
+    "n": 1986,
+    "per_trade": -30.08,
+    "won": 26.6,
+    "t": -2.28
+   },
+   "fresh": {
+    "n": 5692,
+    "per_trade": -23.65,
+    "won": 28.7,
+    "t": -2.87
+   },
+   "verdict": "fails the checks"
+  },
+  {
+   "name": "reversal-15m (dropped)",
+   "title": "buy against a 0.3%+ move over 15 min, held to the close",
+   "tried": 100,
+   "selection": {
+    "n": 353,
+    "per_trade": -4.87,
+    "won": 32.6,
+    "t": -0.3
+   },
+   "confirmation": {
+    "n": 113,
+    "per_trade": 19.7,
+    "won": 38.9,
+    "t": 0.5
+   },
+   "confirmation_half": {
+    "n": 113,
+    "per_trade": 22.88,
+    "won": 38.9,
+    "t": 0.57
+   },
+   "fresh": {
+    "n": 314,
+    "per_trade": -10.44,
+    "won": 40.1,
+    "t": -0.94
+   },
+   "verdict": "positive in one check only \u2014 not proven"
+  },
+  {
+   "name": "fed-straddle (dropped)",
+   "title": "buy the 9:45 straddle on Fed days, held to the close (one result per day and ticker)",
+   "tried": 1,
+   "selection": {
+    "n": 8,
+    "per_trade": 126.2,
+    "won": 50.0,
+    "t": 0.75
+   },
+   "confirmation": {
+    "n": 4
+   },
+   "confirmation_half": {
+    "n": 4
+   },
+   "fresh": {
+    "n": 12,
+    "per_trade": -218.47,
+    "won": 8.3,
+    "t": -3.63
+   },
+   "verdict": "fails the checks"
+  }
+ ],
+ "news_days": [
+  {
+   "rule": "momentum after 0.15% over open",
+   "kind": "CPI/jobs day",
+   "days": 31,
+   "n": 1007,
+   "per_trade": -7.48,
+   "won": 25.3,
+   "t": -0.19
+  },
+  {
+   "rule": "momentum after 0.15% over open",
+   "kind": "Fed day",
+   "days": 12,
+   "n": 347,
+   "per_trade": 26.89,
+   "won": 34.3,
+   "t": 0.31
+  },
+  {
+   "rule": "momentum after 0.15% over open",
+   "kind": "normal day",
+   "days": 308,
+   "n": 10360,
+   "per_trade": -16.84,
+   "won": 31.1,
+   "t": -2.44
+  },
+  {
+   "rule": "buy 9:45 straddle, hold to 16:00",
+   "kind": "CPI/jobs day",
+   "days": 31,
+   "n": 62,
+   "per_trade": 1.2,
+   "won": 32.3,
+   "t": 0.01
+  },
+  {
+   "rule": "buy 9:45 straddle, hold to 16:00",
+   "kind": "Fed day",
+   "days": 12,
+   "n": 24,
+   "per_trade": -42.2,
+   "won": 29.2,
+   "t": -0.49
+  },
+  {
+   "rule": "buy 9:45 straddle, hold to 16:00",
+   "kind": "normal day",
+   "days": 309,
+   "n": 618,
+   "per_trade": -27.33,
+   "won": 36.7,
+   "t": -1.93
+  },
+  {
+   "rule": "sell 9:45 straddle, hold to 16:00",
+   "kind": "CPI/jobs day",
+   "days": 31,
+   "n": 62,
+   "per_trade": -26.88,
+   "won": 66.1,
+   "t": -0.29
+  },
+  {
+   "rule": "sell 9:45 straddle, hold to 16:00",
+   "kind": "Fed day",
+   "days": 12,
+   "n": 24,
+   "per_trade": 20.51,
+   "won": 70.8,
+   "t": 0.23
+  },
+  {
+   "rule": "sell 9:45 straddle, hold to 16:00",
+   "kind": "normal day",
+   "days": 309,
+   "n": 618,
+   "per_trade": 3.99,
+   "won": 59.2,
+   "t": 0.28
+  }
+ ]
+}
