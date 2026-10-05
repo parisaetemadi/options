@@ -4,7 +4,8 @@ within 0-7 days, strikes within +-3% of the previous close, one snapshot every 1
 New York time (early-close days handled). Newest first, back to 2024-10-01 at most (the cap stops it first).
 
 Approved by the user 2026-10-01 (~$11; the 1-day test priced the year at ~$12), and on 2026-10-02 ~$20 more
-(back to about late 2024, incl. the April 2025 crash; keeps ~$6 of the free credit). Shares the spending ledger with download_databento.py
+(back to about late 2024, incl. the April 2025 crash; keeps ~$6 of the free credit), and on 2026-10-04 the
+rest of the credit but ~$3 (portal showed $15 left): further back into 2023-2024. Shares the spending ledger with download_databento.py
 (counted x1.15); this downloader stops at BUDGET below.
 Saved per day: data/databento/intraday/raw/<day>.parquet (the purchase, first) and
 data/databento/intraday/<day>.parquet (tidy). Quality: data/databento/intraday/quality.csv
@@ -23,10 +24,10 @@ import pandas_market_calendars as mcal
 import download_databento as dd
 
 TICKERS = ["SPY", "QQQ"]
-FIRST, LAST = "2024-10-01", dd.LAST_DAY
+FIRST, LAST = "2022-11-14", dd.LAST_DAY       # SPY/QQQ options expire every weekday from mid-Nov 2022
 STEP_MIN, MAX_DTE, STRIKE_RANGE = 15, 7, 0.03
-dd.BUDGET = 121.0          # ledger $100.87 after all daily downloads + the approved ~$20 extension
-CAP = 32.0                 # this downloader's own limit: $12 approved 2026-10-01 + $20 on 2026-10-02 (counted x1.25 like the ledger)
+dd.BUDGET = 131.0          # ledger $100.87 after all daily downloads + the approved ~$20 + ~$12 extensions
+CAP = 41.0                 # this downloader's own limit: $12 (10-01) + $20 (10-02) + ~$12 real (10-04), counted x1.25 like the ledger
 OUT = dd.OUT / "intraday"
 
 
