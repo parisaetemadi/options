@@ -171,8 +171,7 @@ for side, hhmm in itertools.product(["buy", "sell"], sorted(straddle["hhmm"].uni
     half = pnl(e, side, 0.5).groupby(["date", "ticker"]).agg(pnl=("pnl", "sum"), premium=("premium", "sum")).reset_index()
     rows.append({"rule": {"side": side, "enter": hhmm}, **periods(full, half)})
 best_time = report("B. at-the-money straddle at a time of day, closed at 16:00", rows)
-PAPER_TIME = {"side": "sell", "enter": "11:15"}       # paper-traded from 2026-10-05 (paper_options.py)
-paper_time = {**next(r for r in rows if r["rule"] == PAPER_TIME), "tried": len(rows)}
+
 
 # ---------- C. scheduled news days vs normal days ----------
 ev = pd.read_csv("data/events/macro.csv")
@@ -223,12 +222,15 @@ r = best_move["rule"]
 out = {"as_of": pd.Timestamp.now().strftime("%Y-%m-%d"),
        "data": f"Databento SPY/QQQ option quotes every 15 min, {q['date'].min()} .. {q['date'].max()}",
        "select": f"{FRESH_END} .. {SPLIT}", "confirm": f"{SPLIT} .. {q['date'].max()}", "fresh": f"{q['date'].min()} .. {FRESH_END}",
-       "rules": [card("sell-straddle-1115 (paper-traded)", "sell the 11:15 straddle, buy it back at the close (one result per day and ticker)", paper_time),
-                 card("best time-of-day rule now", f"{best_time['rule']['side']} the straddle at {best_time['rule']['enter']}, held to the close", best_time),
+       "rules": [card("best time-of-day rule now", f"{best_time['rule']['side']} the straddle at {best_time['rule']['enter']}, held to the close", best_time),
                  card("best move rule now", f"{r['style']} after a {r['thr']:.2%} move over {r['look']}, held to {r['hold']}", best_move),
                  card("reversal-15m (dropped)", "buy against a 0.3%+ move over 15 min, held to the close", paper_move),
                  card("fed-straddle (dropped)", "buy the 9:45 straddle on Fed days, held to the close (one result per day and ticker)", fed_straddle)],
        "news_days": news}
 Path("data/paper_options").mkdir(parents=True, exist_ok=True)
-Path("data/paper_options/validation.json").write_text(json.dumps(out, indent=1))
+vf = Path("data/paper_options/validation.json")
+if vf.exists():          # keep the cards iron_fly_test.py publishes (the paper-traded rule and its plain version)
+    old = json.loads(vf.read_text()).get("rules", [])
+    out["rules"] = [r for r in old if r["name"].startswith(("iron-fly", "plain 11:15"))] + out["rules"]
+vf.write_text(json.dumps(out, indent=1))
 print("\nWrote data/paper_options/validation.json")

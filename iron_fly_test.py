@@ -125,3 +125,43 @@ day = t.groupby(["width", "date"])["pnl"].sum().unstack(0)
 p = charts_lib.cumulative({w: day[w].dropna() for w in ["none (straddle)", "1.00%", "0.50%"] if w in day},
                           "Selling the 11:15 straddle (SPY+QQQ, 1 each): plain vs with wings", "iron_fly.png")
 print(f"Chart: {p}")
+
+
+# ---------- publish for the website's Validation tab (merged into data/paper_options/validation.json) ----------
+import json
+from pathlib import Path
+
+
+def brief(g):
+    if len(g) < 5:
+        return {"n": int(len(g))}
+    st = stats(g)
+    return {"n": int(st["trades"]), "per_trade": round(float(st["$/trade"]), 2), "won": round(float(st["% won"]), 1),
+            "t": round(float(st["t (by day)"]), 2)}
+
+
+def card(name, title, width):
+    g = t[t["width"] == width]
+    per = {p: g[g["period"] == p] for p in g["period"].unique()}
+    c = {"name": name, "title": title, "tried": 1,
+         "selection": brief(per.get("picked-on (01-23..06-30)", g.iloc[:0])),
+         "confirmation": brief(per.get("checked-once (07-01..)", g.iloc[:0])),
+         "fresh": brief(per.get("never-seen (before 01-23)", g.iloc[:0]))}
+    pos = [x.get("per_trade", 0) > 0 for x in (c["confirmation"], c["fresh"])]
+    c["verdict"] = ("positive in both checks but weak — not proven" if all(pos) else
+                    "positive in one check only — not proven" if any(pos) else "fails the checks")
+    c["worst_day"] = round(float(g.groupby("date")["pnl"].sum().min()), 0)
+    return c
+
+
+vf = Path("data/paper_options/validation.json")
+v = json.loads(vf.read_text()) if vf.exists() else {"rules": []}
+mine = [card("iron-fly-1115 (paper-traded)", "sell the 11:15 straddle with wings 1% away, close everything at the close "
+             f"(worst day so far ${t[t['width'] == '1.00%'].groupby('date')['pnl'].sum().min():,.0f}; loss capped)", "1.00%"),
+        card("plain 11:15 straddle (dropped)", "the same without wings "
+             f"(worst day ${t[t['width'] == 'none (straddle)'].groupby('date')['pnl'].sum().min():,.0f}, 2025-04-09)", "none (straddle)")]
+v["rules"] = mine + [r for r in v.get("rules", []) if not r["name"].startswith(("iron-fly", "plain 11:15", "sell-straddle-1115"))]
+v["fresh"] = f"{t['date'].min()} .. {FRESH_END}"
+v["data"] = f"Databento SPY/QQQ option quotes every 15 min, {t['date'].min()} .. {t['date'].max()}"
+vf.write_text(json.dumps(v, indent=1))
+print(f"Updated {vf}")

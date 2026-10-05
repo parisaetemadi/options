@@ -1,5 +1,5 @@
 {
- "as_of": "2026-10-04",
+ "as_of": "2026-10-05",
  "daily": [
   {
    "group": "core",
@@ -79,11 +79,11 @@
    "SPY",
    "QQQ"
   ],
-  "first": "2025-05-05",
+  "first": "2024-07-31",
   "last": "2026-09-28",
-  "days": 352,
+  "days": 542,
   "every": "15 min",
-  "live_share": 0.975
+  "live_share": 0.972
  },
- "spent": 111.83
+ "spent": 122.1
 }

@@ -31,14 +31,18 @@ OUT = ROOT / "data" / "paper_options"
 COMM = 0.70
 NY = "America/New_York"
 
-# Rules being paper-traded, picked by intraday_test.py on Databento history (see validation.json).
-# The reversal and Fed-day rules were dropped on 2026-10-04: once options that end worthless were
-# counted as $0 (the old test skipped them), both failed. The code for those kinds stays below.
+# Rule being paper-traded (see validation.json). History of choices:
+# - reversal and Fed-day rules dropped 2026-10-04: failed once worthless options counted as $0;
+# - the plain 11:15 sold straddle dropped 2026-10-04: ~ -$1/trade over Aug 2024-Sep 2026 and -$7.6k
+#   on 2025-04-09 (iron_fly_test.py);
+# - now the same trade with wings (iron fly), which caps the loss. It has NO proven edge either
+#   (about -$1/trade overall): it runs to test the live system with a loss limit, not as a bet.
 RULES = [
-    {"name": "sell-straddle-1115", "kind": "time", "side": "sell", "enter": "11:15",
-     "tickers": ["SPY", "QQQ"], "what": "Every day at 11:15, sell the at-the-money call and put of the nearest "
-     "expiry (a bet that the stock stays calm for the rest of the day); buy both back at the close. "
-     "The only rule positive in all three checks so far, and only weakly."},
+    {"name": "iron-fly-1115", "kind": "fly", "enter": "11:15", "width": 0.01,
+     "tickers": ["SPY", "QQQ"], "what": "Every day at 11:15: sell the at-the-money call and put of the nearest "
+     "expiry, and buy a call 1% above and a put 1% below the stock price as a safety net; close all four at "
+     "the close. Wins when the stock stays calm; the worst possible loss is fixed when it opens (about $400-550). "
+     "No proven edge: running to test the live system with a capped loss."},
 ]
 ENTRY_FIRST, ENTRY_LAST, CLOSE_FROM = "09:45", "15:30", "15:45"
 MAX_PREMIUM_PER_DAY = 1000.0    # user's cap (2026-10-05): premium of all positions opened in a day, whole straddles only
@@ -126,7 +130,33 @@ def entries(q, spots):
                     c = atm(day_q, now["snap"], ticker, kind, now["pspot"])
                     if c is not None:
                         rows.append({"rule": rule["name"], "why": why, **_entry(c, now, rule.get("side", "buy"))})
+            elif rule["kind"] == "fly":
+                start = pd.Timestamp(f"{day} {rule['enter']}", tz=NY)
+                first = sp[(sp["snap"] >= start) & (sp["snap"] <= start + pd.Timedelta(minutes=30))].head(1)
+                if not first.empty:
+                    rows += iron_fly(day_q, first.iloc[0], rule)
     return premium_cap(pd.DataFrame(rows))
+
+
+def iron_fly(day_q, now, rule):
+    """Four legs at one snapshot, nearest expiry: short call + put at the strike nearest the stock (both live),
+    long call at the first strike >= stock x (1 + width), long put at the last strike <= stock x (1 - width)."""
+    g = day_q[(day_q["snap"] == now["snap"]) & (day_q["bid"] > 0) & (day_q["ask"] > day_q["bid"])]
+    g = g[g["expiration"] == g["expiration"].min()]
+    calls, puts = g[g["type"] == "call"].set_index("strike"), g[g["type"] == "put"].set_index("strike")
+    both = calls.index.intersection(puts.index)
+    s, w = now["pspot"], rule["width"]
+    wing_c, wing_p = calls[calls.index >= s * (1 + w)], puts[puts.index <= s * (1 - w)]
+    if both.empty or wing_c.empty or wing_p.empty:
+        return []
+    k0 = min(both, key=lambda k: abs(k - s))
+    kc, kp = wing_c.index.min(), wing_p.index.max()
+    legs = [(calls.loc[k0], "sell"), (puts.loc[k0], "sell"), (calls.loc[kc], "buy"), (puts.loc[kp], "buy")]
+    credit = calls.loc[k0, "bid"] + puts.loc[k0, "bid"] - calls.loc[kc, "ask"] - puts.loc[kp, "ask"]
+    max_loss = (max(kc - k0, k0 - kp) - credit) * 100 + 8 * COMM
+    why = f"daily at {rule['enter']} · net credit ${credit * 100:,.0f} · max loss ${max_loss:,.0f}"
+    return [{"rule": rule["name"], "why": why, **_entry(pd.Series({**c.to_dict(), "strike": k}), now, side)}
+            for (c, side), k in zip(legs, [k0, k0, kc, kp])]
 
 
 def premium_cap(e):
@@ -138,7 +168,8 @@ def premium_cap(e):
     e = e.assign(_o=e["ticker"].map(order)).sort_values(["entry_time", "_o", "type"])
     keep, used = [], {}
     for (day, _, ticker, rule), pos in e.groupby(["date", "entry_time", "ticker", "rule"], sort=False):
-        prem = float((pos["entry_price"] * 100).sum())
+        sold = pos[pos["side"] == "sell"]          # premium = what is sold (for buy-only positions, what is bought)
+        prem = float(((sold if len(sold) else pos)["entry_price"] * 100).sum())
         if used.get(day, 0.0) + prem <= MAX_PREMIUM_PER_DAY:
             used[day] = used.get(day, 0.0) + prem
             keep.append(pos)
@@ -211,9 +242,10 @@ def plan(ticker, day, now, trades):
         return "holding: closes at 3:45-4pm"
     if len(mine):
         return "done for today"
-    timed = [r for r in rules if r["kind"] == "time"]
+    timed = [r for r in rules if r["kind"] in ("time", "fly")]
     if timed and now.strftime("%H:%M") < timed[0]["enter"]:
-        return f"{timed[0]['side']}s the straddle at {timed[0]['enter']}"
+        r = timed[0]
+        return f"opens the iron fly at {r['enter']}" if r["kind"] == "fly" else f"{r['side']}s the straddle at {r['enter']}"
     return "no trade today"
 
 

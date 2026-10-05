@@ -1,39 +1,59 @@
 {
- "as_of": "2026-10-03",
- "data": "Databento SPY/QQQ option quotes every 15 min, 2025-05-05 .. 2026-09-28",
+ "as_of": "2026-10-04",
+ "data": "Databento SPY/QQQ option quotes every 15 min, 2024-07-31 .. 2026-09-28",
  "select": "2026-01-23 .. 2026-07-01",
  "confirm": "2026-07-01 .. 2026-09-28",
- "fresh": "2025-05-05 .. 2026-01-23",
+ "fresh": "2024-07-31 .. 2026-01-23",
  "rules": [
   {
-   "name": "sell-straddle-1115 (paper-traded)",
-   "title": "sell the 11:15 straddle, buy it back at the close (one result per day and ticker)",
-   "tried": 48,
+   "name": "iron-fly-1115 (paper-traded)",
+   "title": "sell the 11:15 straddle with wings 1% away, close everything at the close (worst day so far $-984; loss capped)",
+   "tried": 1,
+   "selection": {
+    "n": 200,
+    "per_trade": 3.31,
+    "won": 54.0,
+    "t": 0.19
+   },
+   "confirmation": {
+    "n": 117,
+    "per_trade": 6.49,
+    "won": 58.1,
+    "t": 0.4
+   },
+   "fresh": {
+    "n": 607,
+    "per_trade": -3.77,
+    "won": 58.2,
+    "t": -0.46
+   },
+   "verdict": "positive in one check only \u2014 not proven",
+   "worst_day": -984.0
+  },
+  {
+   "name": "plain 11:15 straddle (dropped)",
+   "title": "the same without wings (worst day $-7,567, 2025-04-09)",
+   "tried": 1,
    "selection": {
     "n": 218,
-    "per_trade": 18.38,
+    "per_trade": 16.49,
     "won": 61.0,
-    "t": 0.79
+    "t": 0.71
    },
    "confirmation": {
     "n": 124,
-    "per_trade": 28.45,
-    "won": 64.5,
-    "t": 1.7
-   },
-   "confirmation_half": {
-    "n": 124,
-    "per_trade": 32.49,
-    "won": 65.3,
-    "t": 1.96
+    "per_trade": 23.36,
+    "won": 63.7,
+    "t": 1.37
    },
    "fresh": {
-    "n": 362,
-    "per_trade": 12.11,
-    "won": 65.5,
-    "t": 0.77
+    "n": 738,
+    "per_trade": -9.56,
+    "won": 62.1,
+    "t": -0.59
    },
-   "verdict": "positive in both checks but weak (t under 2) \u2014 not proven"
+   "verdict": "positive in one check only \u2014 not proven",
+   "worst_day": -7567.0
   },
   {
    "name": "best time-of-day rule now",
@@ -58,12 +78,12 @@
     "t": 1.96
    },
    "fresh": {
-    "n": 362,
-    "per_trade": 12.11,
-    "won": 65.5,
-    "t": 0.77
+    "n": 742,
+    "per_trade": -6.44,
+    "won": 62.4,
+    "t": -0.41
    },
-   "verdict": "positive in both checks but weak (t under 2) \u2014 not proven"
+   "verdict": "positive in one check only \u2014 not proven"
   },
   {
    "name": "best move rule now",
@@ -88,10 +108,10 @@
     "t": -2.28
    },
    "fresh": {
-    "n": 5692,
-    "per_trade": -23.65,
-    "won": 28.7,
-    "t": -2.87
+    "n": 12426,
+    "per_trade": -13.72,
+    "won": 31.1,
+    "t": -1.75
    },
    "verdict": "fails the checks"
   },
@@ -118,10 +138,10 @@
     "t": 0.57
    },
    "fresh": {
-    "n": 314,
-    "per_trade": -10.44,
-    "won": 40.1,
-    "t": -0.94
+    "n": 1180,
+    "per_trade": -9.85,
+    "won": 32.8,
+    "t": -0.46
    },
    "verdict": "positive in one check only \u2014 not proven"
   },
@@ -142,10 +162,10 @@
     "n": 4
    },
    "fresh": {
-    "n": 12,
-    "per_trade": -218.47,
-    "won": 8.3,
-    "t": -3.63
+    "n": 24,
+    "per_trade": -94.63,
+    "won": 12.5,
+    "t": -0.76
    },
    "verdict": "fails the checks"
   }
@@ -154,83 +174,83 @@
   {
    "rule": "momentum after 0.15% over open",
    "kind": "CPI/jobs day",
-   "days": 31,
-   "n": 1007,
-   "per_trade": -7.48,
-   "won": 25.3,
+   "days": 50,
+   "n": 1698,
+   "per_trade": -32.55,
+   "won": 24.4,
+   "t": -1.2
+  },
+  {
+   "rule": "momentum after 0.15% over open",
+   "kind": "Fed day",
+   "days": 18,
+   "n": 549,
+   "per_trade": 6.02,
+   "won": 28.6,
+   "t": 0.11
+  },
+  {
+   "rule": "momentum after 0.15% over open",
+   "kind": "normal day",
+   "days": 473,
+   "n": 16201,
+   "per_trade": -9.66,
+   "won": 32.5,
+   "t": -1.44
+  },
+  {
+   "rule": "buy 9:45 straddle, hold to 16:00",
+   "kind": "CPI/jobs day",
+   "days": 50,
+   "n": 100,
+   "per_trade": -34.2,
+   "won": 29.0,
+   "t": -0.55
+  },
+  {
+   "rule": "buy 9:45 straddle, hold to 16:00",
+   "kind": "Fed day",
+   "days": 18,
+   "n": 36,
+   "per_trade": -18.4,
+   "won": 25.0,
    "t": -0.19
   },
   {
-   "rule": "momentum after 0.15% over open",
-   "kind": "Fed day",
-   "days": 12,
-   "n": 347,
-   "per_trade": 26.89,
-   "won": 34.3,
-   "t": 0.31
-  },
-  {
-   "rule": "momentum after 0.15% over open",
-   "kind": "normal day",
-   "days": 308,
-   "n": 10360,
-   "per_trade": -16.84,
-   "won": 31.1,
-   "t": -2.44
-  },
-  {
-   "rule": "buy 9:45 straddle, hold to 16:00",
-   "kind": "CPI/jobs day",
-   "days": 31,
-   "n": 62,
-   "per_trade": 1.2,
-   "won": 32.3,
-   "t": 0.01
-  },
-  {
-   "rule": "buy 9:45 straddle, hold to 16:00",
-   "kind": "Fed day",
-   "days": 12,
-   "n": 24,
-   "per_trade": -42.2,
-   "won": 29.2,
-   "t": -0.49
-  },
-  {
    "rule": "buy 9:45 straddle, hold to 16:00",
    "kind": "normal day",
-   "days": 309,
-   "n": 618,
-   "per_trade": -27.33,
-   "won": 36.7,
-   "t": -1.93
+   "days": 474,
+   "n": 947,
+   "per_trade": -23.93,
+   "won": 35.7,
+   "t": -1.8
   },
   {
    "rule": "sell 9:45 straddle, hold to 16:00",
    "kind": "CPI/jobs day",
-   "days": 31,
-   "n": 62,
-   "per_trade": -26.88,
-   "won": 66.1,
-   "t": -0.29
+   "days": 50,
+   "n": 100,
+   "per_trade": 2.47,
+   "won": 67.0,
+   "t": 0.04
   },
   {
    "rule": "sell 9:45 straddle, hold to 16:00",
    "kind": "Fed day",
-   "days": 12,
-   "n": 24,
-   "per_trade": 20.51,
-   "won": 70.8,
-   "t": 0.23
+   "days": 18,
+   "n": 36,
+   "per_trade": -11.51,
+   "won": 72.2,
+   "t": -0.11
   },
   {
    "rule": "sell 9:45 straddle, hold to 16:00",
    "kind": "normal day",
-   "days": 309,
-   "n": 618,
-   "per_trade": 3.99,
-   "won": 59.2,
-   "t": 0.28
+   "days": 474,
+   "n": 947,
+   "per_trade": -4.64,
+   "won": 59.0,
+   "t": -0.34
   }
  ]
 }
