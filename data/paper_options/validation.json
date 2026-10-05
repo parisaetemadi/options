@@ -1,31 +1,31 @@
 {
  "as_of": "2026-10-04",
- "data": "Databento SPY/QQQ option quotes every 15 min, 2024-07-31 .. 2026-09-28",
+ "data": "Databento SPY/QQQ option quotes every 15 min, 2024-07-26 .. 2026-09-28",
  "select": "2026-01-23 .. 2026-07-01",
  "confirm": "2026-07-01 .. 2026-09-28",
- "fresh": "2024-07-31 .. 2026-01-23",
+ "fresh": "2024-07-26 .. 2026-01-23",
  "rules": [
   {
    "name": "iron-fly-1115 (paper-traded)",
    "title": "sell the 11:15 straddle with wings 1% away, close everything at the close (worst day so far $-984; loss capped)",
    "tried": 1,
    "selection": {
-    "n": 200,
-    "per_trade": 3.31,
-    "won": 54.0,
-    "t": 0.19
+    "n": 208,
+    "per_trade": 5.57,
+    "won": 55.3,
+    "t": 0.32
    },
    "confirmation": {
-    "n": 117,
-    "per_trade": 6.49,
-    "won": 58.1,
-    "t": 0.4
+    "n": 119,
+    "per_trade": 3.09,
+    "won": 57.1,
+    "t": 0.19
    },
    "fresh": {
-    "n": 607,
-    "per_trade": -3.77,
-    "won": 58.2,
-    "t": -0.46
+    "n": 708,
+    "per_trade": -5.12,
+    "won": 57.3,
+    "t": -0.69
    },
    "verdict": "positive in one check only \u2014 not proven",
    "worst_day": -984.0
@@ -47,10 +47,10 @@
     "t": 1.37
    },
    "fresh": {
-    "n": 738,
-    "per_trade": -9.56,
-    "won": 62.1,
-    "t": -0.59
+    "n": 748,
+    "per_trade": -7.66,
+    "won": 62.4,
+    "t": -0.48
    },
    "verdict": "positive in one check only \u2014 not proven",
    "worst_day": -7567.0
