@@ -102,7 +102,16 @@ def main(max_days):
         prev = all_days[all_days.index(day) - 1]
         t0 = time.time()
         row = sched.loc[day]
-        qc = one_day(day, row["market_open"], row["market_close"], closes.xs(prev, level="date")[TICKERS])
+        for attempt in range(4):                     # Databento has bad hours: wait and retry rather than stop
+            try:
+                qc = one_day(day, row["market_open"], row["market_close"], closes.xs(prev, level="date")[TICKERS])
+                break
+            except RuntimeError as e:
+                print(f"{day}: {e} -- waiting {10 * (attempt + 1)} min, then trying again", flush=True)
+                time.sleep(600 * (attempt + 1))
+        else:
+            print(f"{day}: still failing, stopping for now (the next run fills it in)")
+            break
         done += 1
         print(f"{day}: {qc['snapshots']}/{qc['expected_snapshots']} snapshots, {qc['contracts']} contracts, "
               f"{qc['live']:.0%} live, ${qc['cost']:.4f} (ledger ${dd.spent():.2f}), {time.time() - t0:.0f}s", flush=True)

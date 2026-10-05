@@ -197,7 +197,9 @@ def settle(trades, q):
         return trades
     key = ["date", "ticker", "type", "strike", "expiration"]
     book = q[key + ["snap", "bid", "ask"]].sort_values("snap")
-    today = pd.Timestamp.now(tz=NY).strftime("%Y-%m-%d")
+    now = pd.Timestamp.now(tz=NY)
+    # a day is over once it's past 4:05pm New York (a missed closing run then closes at the day's last quote)
+    today = now.strftime("%Y-%m-%d") if now.strftime("%H:%M") < "16:05" else (now + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     out = []
     for _, t in trades.iterrows():
         quotes = book.merge(pd.DataFrame([t[key]]), on=key)
