@@ -41,6 +41,7 @@ RULES = [
      "The only rule positive in all three checks so far, and only weakly."},
 ]
 ENTRY_FIRST, ENTRY_LAST, CLOSE_FROM = "09:45", "15:30", "15:45"
+MAX_PREMIUM_PER_DAY = 1000.0    # user's cap (2026-10-05): premium of all positions opened in a day, whole straddles only
 
 
 def load_snapshots():
@@ -125,7 +126,25 @@ def entries(q, spots):
                     c = atm(day_q, now["snap"], ticker, kind, now["pspot"])
                     if c is not None:
                         rows.append({"rule": rule["name"], "why": why, **_entry(c, now, rule.get("side", "buy"))})
-    return pd.DataFrame(rows)
+    return premium_cap(pd.DataFrame(rows))
+
+
+def premium_cap(e):
+    """Open positions in time order (SPY before QQQ at the same moment) while the day's total premium
+    stays within MAX_PREMIUM_PER_DAY; a position (both legs of a straddle together) that would go over is skipped."""
+    if e.empty:
+        return e
+    order = {t: i for i, t in enumerate(dict.fromkeys(t for r in RULES for t in r["tickers"]))}
+    e = e.assign(_o=e["ticker"].map(order)).sort_values(["entry_time", "_o", "type"])
+    keep, used = [], {}
+    for (day, _, ticker, rule), pos in e.groupby(["date", "entry_time", "ticker", "rule"], sort=False):
+        prem = float((pos["entry_price"] * 100).sum())
+        if used.get(day, 0.0) + prem <= MAX_PREMIUM_PER_DAY:
+            used[day] = used.get(day, 0.0) + prem
+            keep.append(pos)
+        else:
+            print(f"{day} {ticker} {rule}: skipped, ${prem:,.0f} premium would pass the ${MAX_PREMIUM_PER_DAY:,.0f} daily cap")
+    return pd.concat(keep).drop(columns="_o") if keep else e.iloc[:0].drop(columns="_o")
 
 
 def _entry(c, now, side):
@@ -236,7 +255,7 @@ def main():
     dash = {
         "updated": pd.Timestamp.now(tz=NY).isoformat(),
         "mode": "paper",
-        "fees": f"buy at ask, sell at bid, IBKR ${COMM:.2f}/contract each way",
+        "fees": f"buy at ask, sell at bid, IBKR ${COMM:.2f}/contract each way; at most ${MAX_PREMIUM_PER_DAY:,.0f} of premium opened per day",
         "rules": RULES,
         "trades": [{k: (iso(v) if isinstance(v, pd.Timestamp) else v) for k, v in r.items()}
                    for r in trades.to_dict("records")] if not trades.empty else [],
