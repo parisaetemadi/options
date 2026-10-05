@@ -141,18 +141,22 @@ def entries(q, spots):
 def iron_fly(day_q, now, rule):
     """Four legs at one snapshot, nearest expiry: short call + put at the strike nearest the stock (both live),
     long call at the first strike >= stock x (1 + width), long put at the last strike <= stock x (1 - width)."""
-    g = day_q[(day_q["snap"] == now["snap"]) & (day_q["bid"] > 0) & (day_q["ask"] > day_q["bid"])]
-    g = g[g["expiration"] == g["expiration"].min()]
-    calls, puts = g[g["type"] == "call"].set_index("strike"), g[g["type"] == "put"].set_index("strike")
+    g = day_q[(day_q["snap"] == now["snap"]) & (day_q["ask"] > 0) & (day_q["ask"] >= day_q["bid"])]
+    live = g[(g["bid"] > 0) & (g["ask"] > g["bid"])]
+    exp = live["expiration"].min()
+    g, live = g[g["expiration"] == exp], live[live["expiration"] == exp]
+    # the options we sell need a bid; the wings we buy only need an ask (far-away ones often have no bid)
+    calls, puts = live[live["type"] == "call"].set_index("strike"), live[live["type"] == "put"].set_index("strike")
     both = calls.index.intersection(puts.index)
     s, w = now["pspot"], rule["width"]
-    wing_c, wing_p = calls[calls.index >= s * (1 + w)], puts[puts.index <= s * (1 - w)]
+    buy_c, buy_p = g[g["type"] == "call"].set_index("strike"), g[g["type"] == "put"].set_index("strike")
+    wing_c, wing_p = buy_c[buy_c.index >= s * (1 + w)], buy_p[buy_p.index <= s * (1 - w)]
     if both.empty or wing_c.empty or wing_p.empty:
         return []
     k0 = min(both, key=lambda k: abs(k - s))
     kc, kp = wing_c.index.min(), wing_p.index.max()
-    legs = [(calls.loc[k0], "sell"), (puts.loc[k0], "sell"), (calls.loc[kc], "buy"), (puts.loc[kp], "buy")]
-    credit = calls.loc[k0, "bid"] + puts.loc[k0, "bid"] - calls.loc[kc, "ask"] - puts.loc[kp, "ask"]
+    legs = [(calls.loc[k0], "sell"), (puts.loc[k0], "sell"), (buy_c.loc[kc], "buy"), (buy_p.loc[kp], "buy")]
+    credit = calls.loc[k0, "bid"] + puts.loc[k0, "bid"] - buy_c.loc[kc, "ask"] - buy_p.loc[kp, "ask"]
     max_loss = (max(kc - k0, k0 - kp) - credit) * 100 + 8 * COMM
     why = f"daily at {rule['enter']} · net credit ${credit * 100:,.0f} · max loss ${max_loss:,.0f}"
     return [{"rule": rule["name"], "why": why, **_entry(pd.Series({**c.to_dict(), "strike": k}), now, side)}

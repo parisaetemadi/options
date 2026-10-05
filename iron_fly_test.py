@@ -89,8 +89,9 @@ for (day, ticker), g in q.groupby(["date", "ticker"]):
     naked = (short_in - short_out) * 100 - 4 * COMM
     rows.append({"date": day, "ticker": ticker, "width": "none (straddle)", "pnl": naked, "max_loss": np.nan})
     for w in WIDTHS:
-        calls = live[(live["type"] == "call") & (live["strike"] >= s_in * (1 + w))]
-        puts = live[(live["type"] == "put") & (live["strike"] <= s_in * (1 - w))]
+        buyable = ent[ent["ask"] > 0]                 # wings are bought: an ask is enough (far ones often have no bid)
+        calls = buyable[(buyable["type"] == "call") & (buyable["strike"] >= s_in * (1 + w))]
+        puts = buyable[(buyable["type"] == "put") & (buyable["strike"] <= s_in * (1 - w))]
         if calls.empty or puts.empty:
             continue                                  # strikes that far out weren't bought (range +-3%)
         kc, kp = calls["strike"].min(), puts["strike"].max()
