@@ -26,8 +26,8 @@ import download_databento as dd
 TICKERS = ["SPY", "QQQ"]
 FIRST, LAST = "2022-11-14", dd.LAST_DAY       # SPY/QQQ options expire every weekday from mid-Nov 2022
 STEP_MIN, MAX_DTE, STRIKE_RANGE = 15, 7, 0.03
-dd.BUDGET = 131.0          # ledger $100.87 after all daily downloads + the approved ~$20 + ~$12 extensions
-CAP = 41.0                 # this downloader's own limit: $12 (10-01) + $20 (10-02) + ~$12 real (10-04), counted x1.25 like the ledger
+dd.BUDGET = 136.0          # ledger counts ~11% above the bill: 136 counted ~ $122 real = ~$3 of the $125 credit left
+CAP = 47.0                 # this downloader's own limit (counted x1.25): $12 + $20 + the rest of the credit but ~$3 (portal $10.41 left on 10-05)
 OUT = dd.OUT / "intraday"
 
 
