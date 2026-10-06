@@ -12,6 +12,7 @@ data/databento/intraday/<day>.parquet (tidy). Quality: data/databento/intraday/q
 
 Run:  python download_intraday.py --days 1     (one day first, to check the cost)
       python download_intraday.py
+      python download_intraday.py --group stocks   (NVDA + TSLA, own folder data/databento/intraday_stocks/)
 """
 import argparse
 import fcntl
@@ -118,7 +119,16 @@ def main(max_days):
     print(f"Done. Ledger ${dd.spent():.2f}")
 
 
+# --group stocks: NVDA and TSLA, approved 2026-10-06 with the last of the credit (quoted ~$4.15 for May 2023 -
+# Sep 2026; Databento showed $4.97 left). Own folder and quality file, so the SPY/QQQ files stay as they are.
+GROUPS = {"etf": {"tickers": ["SPY", "QQQ"], "out": "intraday", "cap": CAP, "budget": dd.BUDGET, "first": FIRST},
+          "stocks": {"tickers": ["NVDA", "TSLA"], "out": "intraday_stocks", "cap": 4.6, "budget": 140.6, "first": "2023-05-08"}}
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--days", type=int, default=10**6)
-    main(p.parse_args().days)
+    p.add_argument("--group", choices=list(GROUPS), default="etf")
+    a = p.parse_args()
+    g = GROUPS[a.group]
+    TICKERS, OUT, CAP, FIRST, dd.BUDGET = g["tickers"], dd.OUT / g["out"], g["cap"], g["first"], g["budget"]
+    main(a.days)
