@@ -121,9 +121,9 @@ def main(max_days):
 
 # --group stocks: NVDA and TSLA, approved 2026-10-06 with the last of the credit (quoted ~$4.15 for May 2023 -
 # Sep 2026; Databento showed $4.97 left). The real bill ran ~2.5x the counted cost (150 days cost $2.55), so on 10-06 the
-# cap was cut to 1.81 counted: stop with ~$0.40 of credit left (user: "0.4 seems reasonable"). Own folder and quality file, so the SPY/QQQ files stay as they are.
+# cap was cut to 1.81 counted, then 1.52 (portal $1.51 left at 205 days: real ~3.9x counted, ~$0.0165/day) to keep ~$0.40-0.50 (user: "0.4 seems reasonable"). Own folder and quality file, so the SPY/QQQ files stay as they are.
 GROUPS = {"etf": {"tickers": ["SPY", "QQQ"], "out": "intraday", "cap": CAP, "budget": dd.BUDGET, "first": FIRST},
-          "stocks": {"tickers": ["NVDA", "TSLA"], "out": "intraday_stocks", "cap": 1.81, "budget": 140.6, "first": "2023-05-08"}}
+          "stocks": {"tickers": ["NVDA", "TSLA"], "out": "intraday_stocks", "cap": 1.52, "budget": 140.6, "first": "2023-05-08"}}
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
