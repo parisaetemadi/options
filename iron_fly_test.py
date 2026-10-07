@@ -15,6 +15,7 @@ Periods (rules are NOT re-picked here -- every width is shown in every period):
   never-seen earlier days (before 2026-01-23) | picked-on (2026-01-23 .. 06-30) | checked-once (07-01 ..)
 
 Run:  python iron_fly_test.py
+      GROUP=stocks python iron_fly_test.py   (NVDA + TSLA, Sep 2025 ..; prints only, the website keeps the SPY/QQQ cards)
 """
 import glob
 import os
@@ -29,11 +30,13 @@ FRESH_END, SPLIT = "2026-01-23", "2026-07-01"
 ENTER = "11:15"
 WIDTHS = [0.005, 0.0075, 0.01, 0.015, 0.02]          # wing distance from the stock price
 COMM = 0.70
+GROUP = os.environ.get("GROUP", "etf")
+SRC = {"etf": "data/databento/intraday", "stocks": "data/databento/intraday_stocks"}[GROUP]
 cols = ["date", "snap", "ticker", "type", "strike", "expiration", "bid", "ask"]
 
 # ---------- the 11:15 and closing snapshots of every day ----------
 parts = []
-for f in sorted(glob.glob("data/databento/intraday/2*.parquet")):
+for f in sorted(glob.glob(f"{SRC}/2*.parquet")):
     if time.time() - os.path.getmtime(f) < 120:      # the downloader may still be writing it
         continue
     d = pd.read_parquet(f, columns=cols)
@@ -122,6 +125,10 @@ for period in ["never-seen (before 01-23)", "picked-on (01-23..06-30)", "checked
 print("\nAll periods together:")
 print(t.groupby("width").apply(stats).reindex(order).to_string(float_format=lambda x: f"{x:,.1f}"))
 
+print("\nBy ticker, all periods:")
+print(t.groupby(["ticker", "width"]).apply(stats).to_string(float_format=lambda x: f"{x:,.1f}"))
+if GROUP != "etf":
+    raise SystemExit
 day = t.groupby(["width", "date"])["pnl"].sum().unstack(0)
 p = charts_lib.cumulative({w: day[w].dropna() for w in ["none (straddle)", "1.00%", "0.50%"] if w in day},
                           "Selling the 11:15 straddle (SPY+QQQ, 1 each): plain vs with wings", "iron_fly.png")

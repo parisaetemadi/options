@@ -23,9 +23,11 @@ An option with no bid at the exit is sold for $0 (a total loss) -- not dropped, 
 Writes data/paper_options/validation.json for the website's Validation tab.
 
 Run:  python intraday_test.py
+      GROUP=stocks python intraday_test.py   (NVDA + TSLA, Sep 2025 ..; prints only, the website keeps the SPY/QQQ cards)
 """
 import glob
 import itertools
+import os
 
 import numpy as np
 import pandas as pd
@@ -35,11 +37,13 @@ import strategy_search as ss
 SPLIT = "2026-07-01"
 FRESH_END = "2026-01-23"     # first day of the original download: everything before it is unseen by the picks
 COMM = ss.COMMISSION
+GROUP = os.environ.get("GROUP", "etf")
+SRC = {"etf": "data/databento/intraday", "stocks": "data/databento/intraday_stocks"}[GROUP]
 tbill = pd.read_csv("data/market/vix_rates.csv").set_index("date")["tbill"]
 
 # ---------- load and clean ----------
 cols = ["date", "snap", "ticker", "type", "strike", "expiration", "bid", "ask"]
-q = pd.concat([pd.read_parquet(f, columns=cols) for f in sorted(glob.glob("data/databento/intraday/2*.parquet"))],
+q = pd.concat([pd.read_parquet(f, columns=cols) for f in sorted(glob.glob(f"{SRC}/2*.parquet"))],
               ignore_index=True)
 q = q.astype({"date": str, "ticker": str, "type": str, "expiration": str})
 q["snap"] = pd.to_datetime(q["snap"], utc=True).dt.tz_convert("America/New_York")
@@ -139,7 +143,7 @@ def report(name, rows):
 
 
 # ---------- A. move rules ----------
-GRID = {"style": ["momentum", "reversal"], "look": ["15m", "30m", "60m", "120m", "open"], "thr": [0.0015, 0.003],
+GRID = {"style": ["momentum", "reversal"], "look": ["15m", "30m", "60m", "120m", "open"], "thr": [0.0015, 0.003] if GROUP == "etf" else [0.003, 0.006],   # stocks move ~2-3x more
         "hold": ["15m", "30m", "60m", "120m", "close"]}
 rows = []
 cand = snaps[(snaps["snap"].dt.strftime("%H:%M") >= "09:45") & (snaps["snap"].dt.strftime("%H:%M") <= "15:30")]
@@ -198,6 +202,8 @@ for name, t in [(f"{r0['style']} after {r0['thr']:.2%} over {r0['look']}", pd.co
 
 
 # ---------- publish for the website (data/paper_options/validation.json) ----------
+if GROUP != "etf":
+    raise SystemExit
 import json
 from pathlib import Path
 
