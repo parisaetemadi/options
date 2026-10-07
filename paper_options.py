@@ -173,6 +173,11 @@ def premium_cap(e):
     keep, used = [], {}
     for (day, _, ticker, rule), pos in e.groupby(["date", "entry_time", "ticker", "rule"], sort=False):
         sold = pos[pos["side"] == "sell"]          # premium = what is sold (for buy-only positions, what is bought)
+        # user's rule (2026-10-07): losses are always capped -- every option sold needs one bought of the same type
+        bought = pos[pos["side"] == "buy"]
+        if any((sold["type"] == t).sum() > (bought["type"] == t).sum() for t in ("call", "put")):
+            print(f"{day} {ticker} {rule}: skipped, sold options without bought protection (loss not capped)")
+            continue
         prem = float(((sold if len(sold) else pos)["entry_price"] * 100).sum())
         if used.get(day, 0.0) + prem <= MAX_PREMIUM_PER_DAY:
             used[day] = used.get(day, 0.0) + prem
