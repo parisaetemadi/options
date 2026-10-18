@@ -78,3 +78,19 @@ exits by formula, which is meaningless; that output was discarded. Fix, applied 
 **the expiry is the nearest one with at least 7 days left on the exit day** (H1/H5: and on or after the
 news day, which that already implies). Nothing else changes. H3 and H4 don't need exit quotes from the
 daily data and are unaffected (H4 had already run: t 2.22, FAIL).
+
+## Results (2026-10-18, `python hypotheses_test.py`, full bid/ask + $0.70/contract each way)
+
+| | Idea | Trades | $/trade | Won | t | Halves ($/trade) | Verdict |
+|---|---|---|---|---|---|---|---|
+| H1 | Pre-earnings run-up | 1,601 | -73.5 | 37% | -3.11 | -35 / -112 | FAIL |
+| H2 | Weekend iron condor | 3,370 | -43.4 | 33% | -16.3 | -33 / -54 | FAIL |
+| H3 | Overnight iron fly | 1,797 | -16.2 | 50% | -6.98 | -13 / -19 | FAIL |
+| H4 | Index put spread, monthly | 482 | +41.9 | 91% | 2.22 | +13 / +70 | FAIL (t < 2.6) |
+| H5 | Pre-Fed run-up | 321 | -36.6 | 34% | -1.69 | -12 / -61 | FAIL |
+
+None passes. H2 at half-spread fills is still -$24/trade: the weekend decay is already in Friday's
+prices, and the spread (4 legs, twice) is the loss. H4 is the only positive one: the known premium in
+index puts, but it's carried by the good years and gave back $4,607 in one month (Feb 2020, losses
+capped at the spread width). Under the rules above it is dropped. It can only be re-judged on *future*
+months, unchanged.
