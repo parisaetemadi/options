@@ -70,3 +70,11 @@ Out-of-the-money index puts cost more than they pay out on average; a put spread
 - Exit: the close of the trading day before the decision. Entry: the close 5 trading days before that.
 - Expiry: the nearest one on or after the decision day, >= 7 days at entry.
 - BUY the near-the-money pair at entry, sell it at the exit.
+
+## Amendment 1 (2026-10-18, before any valid result was seen)
+The daily data keeps only options with >= 7 days to expiry, so an option expiring right after the news
+(H1, H5) or within the week (H2) is already missing on the exit day. The first run valued 100% of those
+exits by formula, which is meaningless; that output was discarded. Fix, applied the same to every trade:
+**the expiry is the nearest one with at least 7 days left on the exit day** (H1/H5: and on or after the
+news day, which that already implies). Nothing else changes. H3 and H4 don't need exit quotes from the
+daily data and are unaffected (H4 had already run: t 2.22, FAIL).
