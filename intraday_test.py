@@ -237,6 +237,6 @@ Path("data/paper_options").mkdir(parents=True, exist_ok=True)
 vf = Path("data/paper_options/validation.json")
 if vf.exists():          # keep the cards iron_fly_test.py publishes (the paper-traded rule and its plain version)
     old = json.loads(vf.read_text()).get("rules", [])
-    out["rules"] = [r for r in old if r["name"].startswith(("iron-fly", "plain 11:15"))] + out["rules"]
+    out["rules"] = [r for r in old if r["name"].startswith(("iron-fly", "plain 11:15", "put-spread"))] + out["rules"]
 vf.write_text(json.dumps(out, indent=1))
 print("\nWrote data/paper_options/validation.json")

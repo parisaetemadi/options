@@ -6,6 +6,50 @@
  "fresh": "2023-05-08 .. 2026-01-23",
  "rules": [
   {
+   "name": "put-spread-monthly (paper-traded)",
+   "title": "sell the SPY/QQQ/IWM put ~5% below, buy the one ~10% below, next month's expiry, held to expiry (worst month $-4,607 on 2025-03-24, all three together; loss capped)",
+   "lines": [
+    {
+     "label": "All months 2013-04-22 .. 2026-08-24 (written down first, tested once)",
+     "stats": {
+      "n": 482,
+      "per_trade": 41.94,
+      "won": 91.3,
+      "t": 2.22
+     }
+    },
+    {
+     "label": "First half (.. 2019-12-23)",
+     "stats": {
+      "n": 239,
+      "per_trade": 13.18,
+      "won": 93.7,
+      "t": 0.94
+     }
+    },
+    {
+     "label": "Second half (2019-12-23 ..)",
+     "stats": {
+      "n": 243,
+      "per_trade": 70.23,
+      "won": 88.9,
+      "t": 2.03
+     }
+    },
+    {
+     "label": "Same, paying half the spread",
+     "stats": {
+      "n": 482,
+      "per_trade": 43.37,
+      "won": 91.3,
+      "t": 2.3
+     },
+     "meta": true
+    }
+   ],
+   "verdict": "positive in both halves but t under 2.6 (the bar set in advance) \u2014 not proven; paper-traded unchanged"
+  },
+  {
    "name": "iron-fly-1115 (paper-traded)",
    "title": "sell the 11:15 straddle with wings 1% away, close everything at the close (worst day so far $-984; loss capped)",
    "tried": 1,

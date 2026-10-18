@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: pip install pandas yfinance
+      - run: pip install pandas yfinance pandas_market_calendars
 
       - run: python snapshot_intraday.py
 

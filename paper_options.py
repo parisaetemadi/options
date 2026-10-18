@@ -11,7 +11,8 @@ signal and the prices it trades on from the same moment -- the same method as in
 
 Fills: buy at the ask, sell at the bid (the full spread), plus IBKR's $0.70 per contract each way.
 Positions held "to the close" are sold at the day's last snapshot from 15:45 on; if the day's runs
-stopped earlier, at its last snapshot (flagged "late close").
+stopped earlier, at its last snapshot (flagged "late close"). The monthly put spread is held to its
+expiry and settled at its value then, from the stock's last price on expiry day.
 
 Writes data/paper_options/trades.csv and dashboard.json (read by the website's Options page).
 Run:  python paper_options.py              (after snapshot_intraday.py; on GitHub: intraday.yml)
@@ -37,15 +38,24 @@ NY = "America/New_York"
 #   on 2025-04-09 (iron_fly_test.py);
 # - now the same trade with wings (iron fly), which caps the loss. It has NO proven edge either
 #   (about -$1/trade overall): it runs to test the live system with a loss limit, not as a bet.
+# - 2026-10-18: the monthly index put spread (HYPOTHESES.md H4, the closest any idea came: +$42/trade,
+#   91% won, t 2.2 on 2013-2026, short of the 2.6 bar), traded UNCHANGED so new months can judge it.
 RULES = [
     {"name": "iron-fly-1115", "kind": "fly", "enter": "11:15", "width": 0.01,
      "tickers": ["SPY", "QQQ"], "what": "Every day at 11:15: sell the at-the-money call and put of the nearest "
      "expiry, and buy a call 1% above and a put 1% below the stock price as a safety net; close all four at "
      "the close. Wins when the stock stays calm; the worst possible loss is fixed when it opens (about $400-550). "
      "No proven edge: running to test the live system with a capped loss."},
+    {"name": "put-spread-monthly", "kind": "put_spread", "enter": "15:45", "sell_at": 0.95, "buy_at": 0.90,
+     "tickers": ["SPY", "QQQ", "IWM"], "what": "Once a month, on the first trading day after the monthly options "
+     "expire (3rd Friday), at the close: sell the put about 5% below the stock and buy the put about 10% below, both "
+     "expiring next month, and hold them to expiry. Wins when the stock doesn't fall more than ~5% in the month; the "
+     "worst loss is the gap between the strikes minus the credit. Backtest 2013-2026: +$42/trade, 91% won, t 2.2 "
+     "(short of the 2.6 needed): tested unchanged on new months (HYPOTHESES.md, H4)."},
 ]
+HOLD_TO_EXPIRY = {r["name"] for r in RULES if r["kind"] == "put_spread"}
 ENTRY_FIRST, ENTRY_LAST, CLOSE_FROM = "09:45", "15:30", "15:45"
-MAX_PREMIUM_PER_DAY = 1000.0    # user's cap (2026-10-05): premium of all positions opened in a day, whole straddles only
+MAX_PREMIUM_PER_DAY = 1000.0    # user's cap (2026-10-05): net premium per rule per day, whole positions only
 
 
 def load_snapshots():
@@ -130,11 +140,13 @@ def entries(q, spots):
                     c = atm(day_q, now["snap"], ticker, kind, now["pspot"])
                     if c is not None:
                         rows.append({"rule": rule["name"], "why": why, **_entry(c, now, rule.get("side", "buy"))})
-            elif rule["kind"] == "fly":
+            elif rule["kind"] in ("fly", "put_spread"):
+                if rule["kind"] == "put_spread" and day != spread_day(day):
+                    continue
                 start = pd.Timestamp(f"{day} {rule['enter']}", tz=NY)
                 first = sp[(sp["snap"] >= start) & (sp["snap"] <= start + pd.Timedelta(minutes=30))].head(1)
                 if not first.empty:
-                    rows += iron_fly(day_q, first.iloc[0], rule)
+                    rows += (iron_fly if rule["kind"] == "fly" else put_spread)(day_q, first.iloc[0], rule)
     return premium_cap(pd.DataFrame(rows))
 
 
@@ -163,24 +175,64 @@ def iron_fly(day_q, now, rule):
             for (c, side), k in zip(legs, [k0, k0, kc, kp])]
 
 
+def third_friday(year, month):
+    first = pd.Timestamp(year=year, month=month, day=1)
+    return first + pd.Timedelta(days=(4 - first.weekday()) % 7 + 14)
+
+
+def spread_day(day):
+    """The put spread's entry day in day's month: the first NYSE trading day after the 3rd Friday."""
+    import pandas_market_calendars as mcal
+    fri = third_friday(int(day[:4]), int(day[5:7]))
+    sched = mcal.get_calendar("NYSE").schedule(start_date=fri + pd.Timedelta(days=1), end_date=fri + pd.Timedelta(days=10))
+    return sched.index[0].strftime("%Y-%m-%d")
+
+
+def put_spread(day_q, now, rule):
+    """Sell the put nearest stock x sell_at, buy the put nearest stock x buy_at (strictly lower), next month's
+    standard expiry (3rd Friday, or the day before when that Friday is a holiday). Held to expiry."""
+    d = pd.Timestamp(now["snap"].strftime("%Y-%m-%d"))
+    nxt = third_friday(d.year + d.month // 12, d.month % 12 + 1)
+    g = day_q[(day_q["snap"] == now["snap"]) & (day_q["type"] == "put")]
+    exp = next((e for e in [nxt.strftime("%Y-%m-%d"), (nxt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")]
+                if e in set(g["expiration"])), None)
+    if exp is None:
+        return []
+    g, s = g[g["expiration"] == exp], now["pspot"]
+    sell = g[g["bid"] > 0]
+    if sell.empty:
+        return []
+    k1 = sell.loc[(sell["strike"] - rule["sell_at"] * s).abs().idxmin()]
+    buy = g[(g["strike"] < k1["strike"]) & (g["ask"] > 0)]
+    if buy.empty:
+        return []
+    k2 = buy.loc[(buy["strike"] - rule["buy_at"] * s).abs().idxmin()]
+    credit = k1["bid"] - k2["ask"]
+    max_loss = (k1["strike"] - k2["strike"] - credit) * 100 + 4 * COMM
+    why = f"monthly at the close · net credit ${credit * 100:,.0f} · max loss ${max_loss:,.0f} · expires {exp}"
+    return [{"rule": rule["name"], "why": why, **_entry(c, now, side)} for c, side in [(k1, "sell"), (k2, "buy")]]
+
+
 def premium_cap(e):
-    """Open positions in time order (SPY before QQQ at the same moment) while the day's total premium
-    stays within MAX_PREMIUM_PER_DAY; a position (both legs of a straddle together) that would go over is skipped."""
+    """Open positions in time order (SPY before QQQ at the same moment) while each rule's net premium that
+    day stays within MAX_PREMIUM_PER_DAY; a whole position that would go over is skipped."""
     if e.empty:
         return e
     order = {t: i for i, t in enumerate(dict.fromkeys(t for r in RULES for t in r["tickers"]))}
     e = e.assign(_o=e["ticker"].map(order)).sort_values(["entry_time", "_o", "type"])
     keep, used = [], {}
     for (day, _, ticker, rule), pos in e.groupby(["date", "entry_time", "ticker", "rule"], sort=False):
-        sold = pos[pos["side"] == "sell"]          # premium = what is sold (for buy-only positions, what is bought)
+        sold = pos[pos["side"] == "sell"]
         # user's rule (2026-10-07): losses are always capped -- every option sold needs one bought of the same type
         bought = pos[pos["side"] == "buy"]
         if any((sold["type"] == t).sum() > (bought["type"] == t).sum() for t in ("call", "put")):
             print(f"{day} {ticker} {rule}: skipped, sold options without bought protection (loss not capped)")
             continue
-        prem = float(((sold if len(sold) else pos)["entry_price"] * 100).sum())
-        if used.get(day, 0.0) + prem <= MAX_PREMIUM_PER_DAY:
-            used[day] = used.get(day, 0.0) + prem
+        # premium = the net credit for covered positions (sold minus bought; the bought legs cap the loss),
+        # what is paid for buy-only ones
+        prem = float(abs((sold["entry_price"].sum() - bought["entry_price"].sum()) if len(sold) else bought["entry_price"].sum()) * 100)
+        if used.get((day, rule), 0.0) + prem <= MAX_PREMIUM_PER_DAY:
+            used[(day, rule)] = used.get((day, rule), 0.0) + prem
             keep.append(pos)
         else:
             print(f"{day} {ticker} {rule}: skipped, ${prem:,.0f} premium would pass the ${MAX_PREMIUM_PER_DAY:,.0f} daily cap")
@@ -195,29 +247,41 @@ def _entry(c, now, side):
             "spot": round(float(now["pspot"]), 2)}
 
 
-def settle(trades, q):
+def settle(trades, q, now=None):
     """Exit each trade at the close (or value it at the latest quote while the day is still running).
     A bought option is sold at the bid (no bid = $0); a sold one is bought back at the ask."""
     if trades.empty:
         return trades
     key = ["date", "ticker", "type", "strike", "expiration"]
     book = q[key + ["snap", "bid", "ask"]].sort_values("snap")
-    now = pd.Timestamp.now(tz=NY)
+    trades = trades.reset_index(drop=True)
+    now = now if now is not None else pd.Timestamp.now(tz=NY)
     # a day is over once it's past 4:05pm New York (a missed closing run then closes at the day's last quote)
     today = now.strftime("%Y-%m-%d") if now.strftime("%H:%M") < "16:05" else (now + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    pos = ["date", "entry_time", "ticker", "rule"]
+    short_k = trades[trades["side"] == "sell"].groupby(pos)["strike"].max()
+    spot_at = q.sort_values("snap").groupby(["ticker", "date"]).tail(1).set_index(["ticker", "date"])
     out = []
     for _, t in trades.iterrows():
-        quotes = book.merge(pd.DataFrame([t[key]]), on=key)
-        later = quotes[quotes["snap"] > t["entry_time"]]
-        closing = later[later["snap"].dt.strftime("%H:%M") >= CLOSE_FROM]
-        if not closing.empty:
-            x, status = closing.iloc[-1], "closed"
-        elif t["date"] < today and not later.empty:
-            x, status = later.iloc[-1], "late close"
-        elif t["date"] < today:
-            x, status = None, "no exit quote"
-        else:
+        if t["rule"] in HOLD_TO_EXPIRY:          # held to expiry: marked at the latest quote until then
+            if now >= pd.Timestamp(f"{t['expiration']} 16:05", tz=NY):
+                out.append(expire(t, spot_at, short_k.get(tuple(t[pos]), 0.0)))
+                continue
+            quotes = book.merge(pd.DataFrame([t[key[1:]]]), on=key[1:])
+            later = quotes[quotes["snap"] > t["entry_time"]]
             x, status = (later.iloc[-1] if not later.empty else None), "open"
+        else:
+            quotes = book.merge(pd.DataFrame([t[key]]), on=key)
+            later = quotes[quotes["snap"] > t["entry_time"]]
+            closing = later[later["snap"].dt.strftime("%H:%M") >= CLOSE_FROM]
+            if not closing.empty:
+                x, status = closing.iloc[-1], "closed"
+            elif t["date"] < today and not later.empty:
+                x, status = later.iloc[-1], "late close"
+            elif t["date"] < today:
+                x, status = None, "no exit quote"
+            else:
+                x, status = (later.iloc[-1] if not later.empty else None), "open"
         if t["side"] == "buy":
             price = float(x["bid"]) if x is not None and pd.notna(x["bid"]) else 0.0     # no bid = worth $0
             pnl = (price - t["entry_price"]) * 100 - 2 * COMM
@@ -228,6 +292,23 @@ def settle(trades, q):
         out.append({**t.to_dict(), "exit_time": x["snap"] if x is not None else pd.NaT, "exit_price": price,
                     "status": status, "pnl": round(pnl, 2), "premium": round(t["entry_price"] * 100, 2)})
     return pd.DataFrame(out)
+
+
+def expire(t, spot_at, short_strike):
+    """Settle a held-to-expiry put at its value on expiry day, from the stock's last price that day.
+    If the sold put ends in the money, both legs also pay a commission to close (as in the backtest)."""
+    last = spot_at[(spot_at.index.get_level_values(0) == t["ticker"]) & (spot_at.index.get_level_values(1) <= t["expiration"])]
+    if last.empty:
+        return {**t.to_dict(), "exit_time": pd.NaT, "exit_price": np.nan, "status": "no exit quote", "pnl": np.nan,
+                "premium": round(t["entry_price"] * 100, 2)}
+    x = last.iloc[-1]
+    S = float(x["spot"])
+    value = max(t["strike"] - S, 0.0)
+    extra = COMM if S < short_strike else 0.0
+    sign = 1 if t["side"] == "buy" else -1
+    return {**t.to_dict(), "exit_time": x["snap"], "exit_price": value,
+            "status": "expired" if last.index[-1][1] == t["expiration"] else "expired (late)",
+            "pnl": round(sign * (value - t["entry_price"]) * 100 - COMM - extra, 2), "premium": round(t["entry_price"] * 100, 2)}
 
 
 def health(q):
@@ -244,20 +325,34 @@ def health(q):
 
 
 def plan(ticker, day, now, trades):
-    """What the rules will do next for this ticker today, in words."""
+    """What the rules will do next for this ticker, in words (positions being held first)."""
     rules = [r for r in RULES if ticker in r["tickers"]]
     if not rules:
         return "watch only"
-    mine = trades[(trades["ticker"] == ticker) & (trades["date"] == day)] if not trades.empty else trades
-    if len(mine) and (mine["status"] == "open").any():
-        return "holding: closes at 3:45-4pm"
-    if len(mine):
-        return "done for today"
-    timed = [r for r in rules if r["kind"] in ("time", "fly")]
-    if timed and now.strftime("%H:%M") < timed[0]["enter"]:
-        r = timed[0]
-        return f"opens the iron fly at {r['enter']}" if r["kind"] == "fly" else f"{r['side']}s the straddle at {r['enter']}"
-    return "no trade today"
+    held, rest = [], []
+    for r in rules:
+        mine = trades[(trades["ticker"] == ticker) & (trades["rule"] == r["name"])] if not trades.empty else trades
+        if r["kind"] == "put_spread":
+            open_ = mine[mine["status"] == "open"] if len(mine) else mine
+            if len(open_):
+                held.append(f"holding the put spread to {open_['expiration'].iloc[0]}")
+                continue
+            nxt = spread_day(day)
+            if nxt < day or (nxt == day and now.strftime("%H:%M") > r["enter"]):
+                m = pd.Timestamp(day) + pd.offsets.MonthBegin(1)
+                nxt = spread_day(m.strftime("%Y-%m-%d"))
+            rest.append(f"put spread {'today' if nxt == day else pd.Timestamp(nxt).strftime('%b %-d')} at {r['enter']}")
+            continue
+        today = mine[mine["date"] == day] if len(mine) else mine
+        if len(today) and (today["status"] == "open").any():
+            held.append("holding: closes at 3:45-4pm")
+        elif len(today):
+            rest.append("done for today")
+        elif r["kind"] in ("time", "fly") and now.strftime("%H:%M") < r["enter"]:
+            rest.append(f"opens the iron fly at {r['enter']}" if r["kind"] == "fly" else f"{r['side']}s the straddle at {r['enter']}")
+        else:
+            rest.append("no trade today")
+    return " · ".join(held + rest)
 
 
 def signals(spots, trades):
@@ -298,7 +393,7 @@ def main():
     dash = {
         "updated": pd.Timestamp.now(tz=NY).isoformat(),
         "mode": "paper",
-        "fees": f"buy at ask, sell at bid, IBKR ${COMM:.2f}/contract each way; at most ${MAX_PREMIUM_PER_DAY:,.0f} of premium opened per day",
+        "fees": f"buy at ask, sell at bid, IBKR ${COMM:.2f}/contract each way; at most ${MAX_PREMIUM_PER_DAY:,.0f} of net premium per rule per day; every loss capped by bought options",
         "rules": RULES,
         "trades": [{k: (iso(v) if isinstance(v, pd.Timestamp) else v) for k, v in r.items()}
                    for r in trades.to_dict("records")] if not trades.empty else [],

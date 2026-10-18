@@ -91,6 +91,11 @@ daily data and are unaffected (H4 had already run: t 2.22, FAIL).
 
 None passes. H2 at half-spread fills is still -$24/trade: the weekend decay is already in Friday's
 prices, and the spread (4 legs, twice) is the loss. H4 is the only positive one: the known premium in
-index puts, but it's carried by the good years and gave back $4,607 in one month (Feb 2020, losses
-capped at the spread width). Under the rules above it is dropped. It can only be re-judged on *future*
+index puts, but it's carried by the good years and gave back $4,607 in one month (entered 2025-03-24,
+the April 2025 tariff drop; then -$4,184 Apr 2022, -$3,095 Feb 2020; losses capped at the spread width). Under the rules above it is dropped. It can only be re-judged on *future*
 months, unchanged.
+
+## Paper trading H4 (2026-10-18)
+H4 is paper-traded unchanged from 2026-10-19 (paper_options.py "put-spread-monthly", entry at the
+first snapshot from 15:45 New York time = the close; Yahoo quotes; expiry value from the stock's last
+price on expiry day). Its net credit counts toward the $1,000/day premium cap per rule.

@@ -285,7 +285,37 @@ def h4():
     t = pd.DataFrame(rows)
     print(f"H4: {len(t)} put spreads, skipped {skipped}; avg credit ${t['credit'].mean():.0f}, "
           f"avg width ${t['width'].mean():.1f}, sold put ended in the money {(t['pnl'] < -2 * COMM).mean():.0%}")
-    return verdict("H4 index put spread (SPY/QQQ/IWM, sell 5%-out put, buy 10%-out put, monthly, held to expiry)", t)
+    res = verdict("H4 index put spread (SPY/QQQ/IWM, sell 5%-out put, buy 10%-out put, monthly, held to expiry)", t)
+    publish_h4(t, res)
+    return res
+
+
+def publish_h4(t, res):
+    """The website's Validation card for the paper-traded put spread (merged into data/paper_options/validation.json)."""
+    import json
+    from pathlib import Path
+
+    def line(g, col="pnl"):
+        by = g.groupby("date")[col].sum()
+        return {"n": int(len(g)), "per_trade": round(float(g[col].mean()), 2), "won": round(float((g[col] > 0).mean() * 100), 1),
+                "t": round(float(by.mean() / by.std() * np.sqrt(len(by))), 2)}
+    dates = sorted(t["date"].unique())
+    mid = dates[len(dates) // 2]
+    worst = t.groupby("date")["pnl"].sum()
+    card = {"name": "put-spread-monthly (paper-traded)",
+            "title": "sell the SPY/QQQ/IWM put ~5% below, buy the one ~10% below, next month's expiry, held to expiry "
+                     f"(worst month ${worst.min():,.0f} on {worst.idxmin()}, all three together; loss capped)",
+            "lines": [{"label": f"All months {t['date'].min()} .. {t['date'].max()} (written down first, tested once)", "stats": line(t)},
+                      {"label": f"First half (.. {mid})", "stats": line(t[t["date"] < mid])},
+                      {"label": f"Second half ({mid} ..)", "stats": line(t[t["date"] >= mid])},
+                      {"label": "Same, paying half the spread", "stats": line(t, "pnl_half"), "meta": True}],
+            "verdict": "positive in both halves but t under 2.6 (the bar set in advance) — not proven; paper-traded unchanged"
+            if not res["pass"] else "passes the pre-set bar — still needs paper trading"}
+    vf = Path("data/paper_options/validation.json")
+    v = json.loads(vf.read_text()) if vf.exists() else {"rules": []}
+    v["rules"] = [card] + [r for r in v.get("rules", []) if not r["name"].startswith("put-spread")]
+    vf.write_text(json.dumps(v, indent=1))
+    print(f"Updated {vf}")
 
 
 # ---------- H3: overnight iron fly on the intraday data ----------
