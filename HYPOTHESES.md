@@ -99,3 +99,30 @@ months, unchanged.
 H4 is paper-traded unchanged from 2026-10-19 (paper_options.py "put-spread-monthly", entry at the
 first snapshot from 15:45 New York time = the close; Yahoo quotes; expiry value from the stock's last
 price on expiry day). Its net credit counts toward the $1,000/day premium cap per rule.
+
+---
+
+# Round 2: news (GDELT), pre-registered 2026-10-18 before any test was run
+
+Data: GDELT daily article counts, share of all news, and average tone per company (fetch_gdelt.py,
+2017-01 -> today), with the daily Databento option quotes. GDELT day D (UTC) is complete at 8pm New York,
+after the close, so **day D's news is used from the close of the first trading day after D**.
+Same costs, liquidity, parity and split rules as round 1. Expiry: the nearest with >= 7 days left on
+the exit day. One trade per ticker per entry day. **Pass = t >= 2.4** (3 tests, Bonferroni) **and**
+average > 0 in both halves of the entry dates.
+
+## N1. News-attention spikes (Barber & Odean 2008; Da, Engelberg & Gao 2011)
+A burst of news coverage is followed by bigger moves than options price in.
+- Spike: share_D >= 3 x the median share of the previous 60 days (D excluded), and count_D >= 20.
+- The 34 stocks. BUY the near-the-money pair at the close of the first trading day after D, sell it at the next close.
+
+## N2. Very negative news tone (Tetlock 2007: negative media words predict lower next-day returns)
+- Shock: tone_D <= the 5th percentile of the stock's tone over its previous 250 days (D excluded, at
+  least 100 days), and count_D >= the median count of the previous 60 days.
+- The 34 stocks. BUY the near-the-money put (highest strike <= stock, bid > 0) at the close of the first
+  trading day after D, sell it at the next close.
+
+## N3. Market-stress news spikes
+- Topic: (recession OR tariffs OR "trade war" OR selloff OR "market crash"), fixed in fetch_gdelt.py.
+- Spike: its share_D >= 2 x the median share of the previous 60 days.
+- SPY, QQQ, IWM. BUY the near-the-money pair at the close of the first trading day after D, sell it at the next close.
