@@ -126,3 +126,14 @@ A burst of news coverage is followed by bigger moves than options price in.
 - Topic: (recession OR tariffs OR "trade war" OR selloff OR "market crash"), fixed in fetch_gdelt.py.
 - Spike: its share_D >= 2 x the median share of the previous 60 days.
 - SPY, QQQ, IWM. BUY the near-the-money pair at the close of the first trading day after D, sell it at the next close.
+
+## Round 2 results (2026-10-19, `python news_test.py`, 35 GDELT names complete 2017-01 .. 2026-10)
+
+| | Idea | Trades | $/trade | Won | t | Halves | Verdict |
+|---|---|---|---|---|---|---|---|
+| N1 | News-attention spike, buy pair | 3,524 | -81.8 | 23% | -6.42 | -102 / -61 | FAIL |
+| N2 | Very negative tone, buy put | 3,908 | -43.7 | 34% | -3.53 | -60 / -27 | FAIL |
+| N3 | Market-stress news spike, buy SPY/QQQ/IWM pair | 277 | -13.7 | 33% | -0.72 | -4 / -24 | FAIL |
+
+None passes; all three lose even at half-spread fills (-$46, -$30, -$5). By the next close, a news burst
+is already in option prices (if anything, options are bid up after big news and then deflate).

@@ -39,8 +39,10 @@ QUERIES = {
 
 def get(query, mode):
     params = {"query": query, "mode": mode, "format": "json", "startdatetime": START, "enddatetime": END}
-    for attempt in range(12):
-        time.sleep(6 if attempt == 0 else 20)
+    attempt = 0
+    while True:                         # GDELT throttles hard (sometimes for hours): back off 30s, 60s, 2, 4, then 5 min, never give up
+        time.sleep(8 if attempt == 0 else min(30 * 2 ** (attempt - 1), 300))
+        attempt += 1
         try:
             r = requests.get(API, params=params, timeout=120, headers={"User-Agent": "Mozilla/5.0 (research)"})
         except requests.RequestException as e:
@@ -53,9 +55,7 @@ def get(query, mode):
                 print(f"  {mode}: not JSON ({r.text[:80]!r}), retrying", flush=True)
                 continue
             return data
-        if r.status_code != 429:
-            print(f"  {mode}: HTTP {r.status_code}, retrying", flush=True)
-    raise RuntimeError(f"GDELT kept refusing {mode} for {query}")
+        print(f"  {pd.Timestamp.now():%H:%M} {query[:30]} {mode}: HTTP {r.status_code}, waiting", flush=True)
 
 
 def one(name, query):
