@@ -19,6 +19,7 @@ Run:  python paper_options.py              (after snapshot_intraday.py; on GitHu
       python paper_options.py --coverage   (laptop only: refresh the data-coverage summary)
 """
 import argparse
+import functools
 import glob
 import json
 from pathlib import Path
@@ -180,12 +181,21 @@ def third_friday(year, month):
     return first + pd.Timedelta(days=(4 - first.weekday()) % 7 + 14)
 
 
+@functools.lru_cache(maxsize=None)
+def _spread_day_for_month(year, month):
+    """Building the NYSE schedule costs about a fifth of a second and the answer
+    depends only on the month, but this was called once per trading day — about
+    twenty seconds of a four-minute run spent recomputing two distinct values."""
+    import pandas_market_calendars as mcal
+    fri = third_friday(year, month)
+    sched = mcal.get_calendar("NYSE").schedule(start_date=fri + pd.Timedelta(days=1),
+                                               end_date=fri + pd.Timedelta(days=10))
+    return sched.index[0].strftime("%Y-%m-%d")
+
+
 def spread_day(day):
     """The put spread's entry day in day's month: the first NYSE trading day after the 3rd Friday."""
-    import pandas_market_calendars as mcal
-    fri = third_friday(int(day[:4]), int(day[5:7]))
-    sched = mcal.get_calendar("NYSE").schedule(start_date=fri + pd.Timedelta(days=1), end_date=fri + pd.Timedelta(days=10))
-    return sched.index[0].strftime("%Y-%m-%d")
+    return _spread_day_for_month(int(day[:4]), int(day[5:7]))
 
 
 def put_spread(day_q, now, rule):
@@ -254,6 +264,19 @@ def settle(trades, q, now=None):
         return trades
     key = ["date", "ticker", "type", "strike", "expiration"]
     book = q[key + ["snap", "bid", "ask"]].sort_values("snap")
+    # One lookup instead of a merge per trade. Each of those merges factorized
+    # all of `book` — millions of rows — to pull out a single contract, which
+    # was about eighty seconds of a four-minute run.
+    #
+    # `.indices` maps each key to row positions without building a frame per
+    # group: there are ~170k contracts in the book and only a couple of hundred
+    # trades, so the rows are sliced out on demand. Positions keep `book`'s
+    # order, which is sorted by snap, so `.iloc[-1]` still means the latest
+    # quote.
+    by_contract = book.groupby(key[1:], sort=False).indices
+    by_trade = book.groupby(key, sort=False).indices
+    no_quotes = book.iloc[0:0]
+    rows = lambda idx: book.take(idx) if idx is not None else no_quotes
     trades = trades.reset_index(drop=True)
     now = now if now is not None else pd.Timestamp.now(tz=NY)
     # a day is over once it's past 4:05pm New York (a missed closing run then closes at the day's last quote)
@@ -267,11 +290,11 @@ def settle(trades, q, now=None):
             if now >= pd.Timestamp(f"{t['expiration']} 16:05", tz=NY):
                 out.append(expire(t, spot_at, short_k.get(tuple(t[pos]), 0.0)))
                 continue
-            quotes = book.merge(pd.DataFrame([t[key[1:]]]), on=key[1:])
+            quotes = rows(by_contract.get(tuple(t[key[1:]])))
             later = quotes[quotes["snap"] > t["entry_time"]]
             x, status = (later.iloc[-1] if not later.empty else None), "open"
         else:
-            quotes = book.merge(pd.DataFrame([t[key]]), on=key)
+            quotes = rows(by_trade.get(tuple(t[key])))
             later = quotes[quotes["snap"] > t["entry_time"]]
             closing = later[later["snap"].dt.strftime("%H:%M") >= CLOSE_FROM]
             if not closing.empty:
