@@ -1,6 +1,6 @@
 # Options
 
-> **Purpose.** Research: price options well enough to trade them. Black-Scholes, option-quote downloads, neural-net pricing experiments, backtests.
+> **Purpose.** Research toward pricing options well enough to trade them. Black-Scholes, scheduled quote downloads, neural-net pricing experiments and backtests.
 
 Goal: build a model that prices options well enough to trade them.
 
