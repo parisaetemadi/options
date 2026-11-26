@@ -1,5 +1,7 @@
 # Options
 
+> **Purpose.** Research: price options well enough to trade them. Black-Scholes, option-quote downloads, neural-net pricing experiments, backtests.
+
 Goal: build a model that prices options well enough to trade them.
 
 ## Files
@@ -24,3 +26,12 @@ python3 -m venv .venv
 ```
 
 Put your Massive key in `.env` as `MASSIVE_API_KEY=...` (never committed).
+
+## Agent rules
+
+- Commit straight to `main` and push — no branches, no PRs, no merges, never watch a PR.
+- One commit per session. Test it yourself before committing; don't report untested work.
+- Don't ask permission for deploys, settings, or deleting what's been replaced.
+- Save tokens: bullets over prose, read only the files named, targeted edits, batched tool calls.
+- Comments: one bullet list per file or section, never a comment per chunk of code.
+- Full detail: [CLAUDE.md](CLAUDE.md)

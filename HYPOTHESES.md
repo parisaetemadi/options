@@ -1,5 +1,7 @@
 # Pre-registered hypotheses (written 2026-10-18, before any of these tests were run)
 
+> **Purpose.** The tradeable hypotheses this repo tests, and what each one measured.
+
 Five ideas, each from published research and none tested in this repo before. Each is tested
 **once**, with the exact rules below, by `hypotheses_test.py`. No parameter is changed after seeing
 results. A failed idea is dropped. Any variant tried later counts as a new idea and is checked only on
@@ -137,3 +139,12 @@ A burst of news coverage is followed by bigger moves than options price in.
 
 None passes; all three lose even at half-spread fills (-$46, -$30, -$5). By the next close, a news burst
 is already in option prices (if anything, options are bid up after big news and then deflate).
+
+## Agent rules
+
+- Commit straight to `main` and push — no branches, no PRs, no merges, never watch a PR.
+- One commit per session. Test it yourself before committing; don't report untested work.
+- Don't ask permission for deploys, settings, or deleting what's been replaced.
+- Save tokens: bullets over prose, read only the files named, targeted edits, batched tool calls.
+- Comments: one bullet list per file or section, never a comment per chunk of code.
+- Full detail: [CLAUDE.md](CLAUDE.md)
